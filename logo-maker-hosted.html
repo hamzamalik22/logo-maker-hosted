@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Ghetch Logo Maker</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+      -webkit-tap-highlight-color: transparent;
+      -webkit-touch-callout: none;
+      -webkit-user-select: none;
+      user-select: none;
+    }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #e5e7eb;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    }
+
+    .dark {
+      background: #1f1f1f;
+    }
+    .dark #canvas-wrapper {
+      background: #2d2d2d;
+    }
+    .dark .checker { background-color: #3d3d3d; }
+
+    #canvas-container {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      touch-action: none;
+    }
+
+    #canvas-wrapper {
+      position: relative;
+      background: #ffffff;
+      border-radius: 16px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.12);
+      overflow: hidden;
+    }
+
+    #canvas-wrapper.transparent-bg {
+      background-image: 
+        linear-gradient(45deg, #d1d5db 25%, transparent 25%),
+        linear-gradient(-45deg, #d1d5db 25%, transparent 25%),
+        linear-gradient(45deg, transparent 75%, #d1d5db 75%),
+        linear-gradient(-45deg, transparent 75%, #d1d5db 75%);
+      background-size: 20px 20px;
+      background-position: 0 0, 0 10px, 10px -10px, -10px 0px;
+    }
+
+    canvas { display: block; }
+
+    #loading {
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: #e5e7eb;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+      transition: opacity 0.3s ease;
+    }
+
+    #loading.hidden {
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .spinner {
+      width: 40px;
+      height: 40px;
+      border: 3px solid #d1d5db;
+      border-top-color: #5956E9;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    #status {
+      margin-top: 16px;
+      font-size: 13px;
+      color: #6b7280;
+    }
+
+    .error {
+      color: #ef4444 !important;
+      text-align: center;
+      padding: 0 20px;
+    }
+  </style>
+</head>
+<body>
+  <div id="loading">
+    <div class="spinner"></div>
+    <div id="status">Initializing...</div>
+  </div>
+  
+  <div id="canvas-container">
+    <div id="canvas-wrapper">
+      <canvas id="logo-canvas"></canvas>
+    </div>
+  </div>
+
+  <!-- Load Fabric.js from CDN -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.1/fabric.min.js"></script>
+  
+  <script>
+    (function() {
+      'use strict';
+
+      const statusEl = document.getElementById('status');
+      const loadingEl = document.getElementById('loading');
+
+      function updateStatus(msg, isError) {
+        statusEl.textContent = msg;
+        if (isError) statusEl.classList.add('error');
+        sendToRN({ type: 'STATUS', payload: { message: msg, isError } });
+      }
+
+      // Check if Fabric loaded
+      if (typeof fabric === 'undefined') {
+        updateStatus('Failed to load Fabric.js library', true);
+        sendToRN({ type: 'LOAD_ERROR', payload: { error: 'Fabric.js not loaded' } });
+        return;
+      }
+
+      updateStatus('Library loaded, initializing canvas...');
+
+      let canvas = null;
+      let historyStack = [];
+      let historyIndex = -1;
+      const MAX_HISTORY = 50;
+      let backgroundRect = null;
+      let canvasWidth = 280;
+      let canvasHeight = 280;
+
+      function initCanvas() {
+        try {
+          const container = document.getElementById('canvas-container');
+          const wrapper = document.getElementById('canvas-wrapper');
+          
+          const maxWidth = container.clientWidth - 40;
+          const maxHeight = container.clientHeight - 40;
+          canvasWidth = Math.min(280, maxWidth);
+          canvasHeight = Math.min(280, maxHeight);
+
+          wrapper.style.width = canvasWidth + 'px';
+          wrapper.style.height = canvasHeight + 'px';
+
+          canvas = new fabric.Canvas('logo-canvas', {
+            width: canvasWidth,
+            height: canvasHeight,
+            backgroundColor: '#ffffff',
+            selection: true,
+            preserveObjectStacking: true,
+          });
+
+          setupEventListeners();
+          createBackground('#ffffff');
+          saveHistory();
+
+          loadingEl.classList.add('hidden');
+          sendToRN({ type: 'CANVAS_READY', payload: { width: canvasWidth, height: canvasHeight } });
+          
+        } catch (error) {
+          updateStatus('Error: ' + error.message, true);
+          sendToRN({ type: 'LOAD_ERROR', payload: { error: error.message } });
+        }
+      }
+
+      function setupEventListeners() {
+        canvas.on('selection:created', handleSelection);
+        canvas.on('selection:updated', handleSelection);
+        canvas.on('selection:cleared', () => sendToRN({ type: 'SELECTION_CLEARED' }));
+        canvas.on('object:modified', () => { saveHistory(); sendSelectionUpdate(); });
+        canvas.on('object:added', (e) => { if (e.target?.objectId !== 'background_layer') saveHistory(); });
+        canvas.on('object:removed', (e) => { if (e.target?.objectId !== 'background_layer') saveHistory(); });
+      }
+
+      function createBackground(color) {
+        if (backgroundRect) canvas.remove(backgroundRect);
+        const wrapper = document.getElementById('canvas-wrapper');
+
+        if (color === 'transparent') {
+          wrapper.classList.add('transparent-bg');
+          canvas.backgroundColor = 'transparent';
+          backgroundRect = null;
+        } else {
+          wrapper.classList.remove('transparent-bg');
+          backgroundRect = new fabric.Rect({
+            left: 0, top: 0,
+            width: canvasWidth, height: canvasHeight,
+            fill: color,
+            selectable: false, evented: false,
+            objectId: 'background_layer',
+          });
+          canvas.add(backgroundRect);
+          canvas.sendObjectToBack(backgroundRect);
+          canvas.backgroundColor = '#ffffff';
+        }
+        canvas.renderAll();
+      }
+
+      function addShape(type, options = {}) {
+        let shape;
+        const cx = canvasWidth / 2, cy = canvasHeight / 2;
+        const defaults = { left: cx, top: cy, originX: 'center', originY: 'center', ...options };
+
+        switch (type) {
+          case 'rectangle':
+            shape = new fabric.Rect({ ...defaults, width: 80, height: 80, fill: options.fill || '#3b82f6' });
+            break;
+          case 'circle':
+            shape = new fabric.Circle({ ...defaults, radius: 40, fill: options.fill || '#10b981' });
+            break;
+          case 'triangle':
+            shape = new fabric.Triangle({ ...defaults, width: 80, height: 80, fill: options.fill || '#f59e0b' });
+            break;
+          case 'line':
+            shape = new fabric.Line([cx - 40, cy, cx + 40, cy], { stroke: options.stroke || '#000', strokeWidth: 3 });
+            break;
+          case 'star':
+            const pts = [];
+            for (let i = 0; i < 10; i++) {
+              const r = i % 2 === 0 ? 40 : 20;
+              const a = (Math.PI / 5) * i - Math.PI / 2;
+              pts.push({ x: r * Math.cos(a), y: r * Math.sin(a) });
+            }
+            shape = new fabric.Polygon(pts, { ...defaults, fill: options.fill || '#8b5cf6' });
+            break;
+          case 'polygon':
+            const sides = options.sides || 5, polyPts = [];
+            for (let i = 0; i < sides; i++) {
+              const a = (2 * Math.PI / sides) * i - Math.PI / 2;
+              polyPts.push({ x: 40 * Math.cos(a), y: 40 * Math.sin(a) });
+            }
+            shape = new fabric.Polygon(polyPts, { ...defaults, fill: options.fill || '#ec4899' });
+            break;
+          default: return;
+        }
+
+        shape.objectId = 'shape_' + Date.now();
+        shape.set({
+          cornerColor: '#5956E9', cornerStrokeColor: '#5956E9', borderColor: '#5956E9',
+          cornerSize: 10, cornerStyle: 'circle', transparentCorners: false, borderScaleFactor: 2,
+        });
+        canvas.add(shape);
+        canvas.setActiveObject(shape);
+        canvas.renderAll();
+        sendToRN({ type: 'OBJECT_ADDED', payload: getObjectInfo(shape) });
+      }
+
+      function addText(text, options = {}) {
+        const textObj = new fabric.IText(text || 'Your Text', {
+          left: canvasWidth / 2, top: canvasHeight / 2,
+          originX: 'center', originY: 'center',
+          fontSize: options.fontSize || 32,
+          fontFamily: options.fontFamily || 'Arial',
+          fontWeight: options.fontWeight || 'normal',
+          fill: options.fill || '#000000',
+          textAlign: 'center',
+          objectId: 'text_' + Date.now(),
+          cornerColor: '#5956E9', cornerStrokeColor: '#5956E9', borderColor: '#5956E9',
+          cornerSize: 10, cornerStyle: 'circle', transparentCorners: false,
+        });
+        canvas.add(textObj);
+        canvas.setActiveObject(textObj);
+        canvas.renderAll();
+        sendToRN({ type: 'OBJECT_ADDED', payload: getObjectInfo(textObj) });
+      }
+
+      function addSVG(svgString) {
+        fabric.loadSVGFromString(svgString, (objects, opts) => {
+          const group = fabric.util.groupSVGElements(objects, opts);
+          const scale = Math.min(80 / group.width, 80 / group.height);
+          group.set({
+            left: canvasWidth / 2, top: canvasHeight / 2,
+            originX: 'center', originY: 'center',
+            scaleX: scale, scaleY: scale,
+            objectId: 'svg_' + Date.now(),
+            cornerColor: '#5956E9', cornerStrokeColor: '#5956E9', borderColor: '#5956E9',
+            cornerSize: 10, cornerStyle: 'circle', transparentCorners: false,
+          });
+          canvas.add(group);
+          canvas.setActiveObject(group);
+          canvas.renderAll();
+          sendToRN({ type: 'OBJECT_ADDED', payload: getObjectInfo(group) });
+        });
+      }
+
+      function updateSelectedObject(prop, val) {
+        const obj = canvas.getActiveObject();
+        if (!obj) return;
+        if (prop === 'fontSize') val = parseInt(val);
+        else if (prop === 'strokeWidth') val = parseFloat(val);
+        obj.set(prop, val);
+        canvas.renderAll();
+        saveHistory();
+        sendSelectionUpdate();
+      }
+
+      function deleteSelected() {
+        canvas.getActiveObjects().forEach(obj => {
+          if (obj.objectId !== 'background_layer') canvas.remove(obj);
+        });
+        canvas.discardActiveObject();
+        canvas.renderAll();
+        saveHistory();
+        sendToRN({ type: 'SELECTION_CLEARED' });
+      }
+
+      function duplicateSelected() {
+        const obj = canvas.getActiveObject();
+        if (!obj || obj.objectId === 'background_layer') return;
+        obj.clone(cloned => {
+          cloned.set({ left: obj.left + 15, top: obj.top + 15, objectId: obj.type + '_' + Date.now() });
+          canvas.add(cloned);
+          canvas.setActiveObject(cloned);
+          canvas.renderAll();
+          saveHistory();
+        });
+      }
+
+      function bringForward() { const o = canvas.getActiveObject(); if (o) { canvas.bringObjectForward(o); canvas.renderAll(); saveHistory(); } }
+      function sendBackward() {
+        const o = canvas.getActiveObject();
+        if (o) {
+          const objs = canvas.getObjects();
+          const bgIdx = objs.findIndex(x => x.objectId === 'background_layer');
+          if (objs.indexOf(o) > bgIdx + 1) { canvas.sendObjectBackwards(o); canvas.renderAll(); saveHistory(); }
+        }
+      }
+      function bringToFront() { const o = canvas.getActiveObject(); if (o) { canvas.bringObjectToFront(o); canvas.renderAll(); saveHistory(); } }
+      function sendToBack() {
+        const o = canvas.getActiveObject();
+        if (o) {
+          canvas.sendObjectToBack(o);
+          if (backgroundRect) canvas.sendObjectToBack(backgroundRect);
+          canvas.renderAll();
+          saveHistory();
+        }
+      }
+
+      function saveHistory() {
+        const json = canvas.toJSON(['objectId']);
+        if (historyIndex < historyStack.length - 1) historyStack = historyStack.slice(0, historyIndex + 1);
+        historyStack.push(json);
+        if (historyStack.length > MAX_HISTORY) historyStack.shift();
+        else historyIndex++;
+        sendHistoryState();
+      }
+
+      function undo() { if (historyIndex > 0) { historyIndex--; loadHistory(); } }
+      function redo() { if (historyIndex < historyStack.length - 1) { historyIndex++; loadHistory(); } }
+
+      function loadHistory() {
+        const state = historyStack[historyIndex];
+        if (!state) return;
+        canvas.loadFromJSON(state, () => {
+          backgroundRect = canvas.getObjects().find(o => o.objectId === 'background_layer') || null;
+          canvas.renderAll();
+          sendHistoryState();
+          sendToRN({ type: 'SELECTION_CLEARED' });
+        });
+      }
+
+      function sendHistoryState() {
+        sendToRN({ type: 'HISTORY_STATE', payload: { canUndo: historyIndex > 0, canRedo: historyIndex < historyStack.length - 1 } });
+      }
+
+      function exportCanvas(format, quality = 1, multiplier = 2) {
+        try {
+          if (format === 'svg') {
+            sendToRN({ type: 'EXPORT_COMPLETE', payload: { format: 'svg', data: canvas.toSVG() } });
+            return;
+          }
+          const dataUrl = canvas.toDataURL({ format: format === 'jpeg' ? 'jpeg' : 'png', quality, multiplier });
+          sendToRN({ type: 'EXPORT_COMPLETE', payload: { format, data: dataUrl } });
+        } catch (e) {
+          sendToRN({ type: 'EXPORT_ERROR', payload: { error: e.message } });
+        }
+      }
+
+      function getLayers() {
+        const layers = canvas.getObjects()
+          .filter(o => o.objectId !== 'background_layer')
+          .map((obj, i) => ({ id: obj.objectId, type: obj.type, name: obj.objectId || obj.type, visible: obj.visible !== false, locked: !obj.selectable, index: i }))
+          .reverse();
+        sendToRN({ type: 'LAYERS_LIST', payload: { layers } });
+      }
+
+      function setLayerVisibility(id, visible) {
+        const obj = canvas.getObjects().find(o => o.objectId === id);
+        if (obj) { obj.set('visible', visible); canvas.renderAll(); saveHistory(); }
+      }
+
+      function selectLayer(id) {
+        const obj = canvas.getObjects().find(o => o.objectId === id);
+        if (obj && obj.selectable) { canvas.setActiveObject(obj); canvas.renderAll(); }
+      }
+
+      function handleSelection(e) {
+        const sel = e.selected[0];
+        if (sel && sel.objectId !== 'background_layer') {
+          sendToRN({ type: 'SELECTION_CHANGED', payload: getObjectInfo(sel) });
+        }
+      }
+
+      function sendSelectionUpdate() {
+        const obj = canvas.getActiveObject();
+        if (obj && obj.objectId !== 'background_layer') {
+          sendToRN({ type: 'SELECTION_CHANGED', payload: getObjectInfo(obj) });
+        }
+      }
+
+      function getObjectInfo(obj) {
+        return {
+          objectId: obj.objectId, type: obj.type,
+          left: Math.round(obj.left), top: Math.round(obj.top),
+          width: Math.round(obj.width * (obj.scaleX || 1)),
+          height: Math.round(obj.height * (obj.scaleY || 1)),
+          angle: Math.round(obj.angle || 0),
+          fill: obj.fill, stroke: obj.stroke, strokeWidth: obj.strokeWidth, opacity: obj.opacity,
+          text: obj.text, fontSize: obj.fontSize, fontFamily: obj.fontFamily, fontWeight: obj.fontWeight,
+        };
+      }
+
+      function sendToRN(msg) {
+        if (window.ReactNativeWebView) {
+          window.ReactNativeWebView.postMessage(JSON.stringify(msg));
+        } else {
+          console.log('RN Message:', msg);
+        }
+      }
+
+      window.handleRNMessage = function(message) {
+        const { type, payload } = typeof message === 'string' ? JSON.parse(message) : message;
+        switch (type) {
+          case 'ADD_SHAPE': addShape(payload.shape, payload.options); break;
+          case 'ADD_TEXT': addText(payload.text, payload.options); break;
+          case 'ADD_SVG': addSVG(payload.svg); break;
+          case 'UPDATE_OBJECT': updateSelectedObject(payload.property, payload.value); break;
+          case 'DELETE_SELECTED': deleteSelected(); break;
+          case 'DUPLICATE_SELECTED': duplicateSelected(); break;
+          case 'BRING_FORWARD': bringForward(); break;
+          case 'SEND_BACKWARD': sendBackward(); break;
+          case 'BRING_TO_FRONT': bringToFront(); break;
+          case 'SEND_TO_BACK': sendToBack(); break;
+          case 'SET_BACKGROUND': createBackground(payload.color); saveHistory(); break;
+          case 'UNDO': undo(); break;
+          case 'REDO': redo(); break;
+          case 'EXPORT': exportCanvas(payload.format, payload.quality, payload.multiplier); break;
+          case 'GET_LAYERS': getLayers(); break;
+          case 'SET_LAYER_VISIBILITY': setLayerVisibility(payload.objectId, payload.visible); break;
+          case 'SELECT_LAYER': selectLayer(payload.objectId); break;
+          case 'SET_THEME': document.body.classList.toggle('dark', payload.dark); break;
+          case 'DESELECT': canvas.discardActiveObject(); canvas.renderAll(); break;
+        }
+      };
+
+      // Initialize when DOM ready
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initCanvas);
+      } else {
+        initCanvas();
+      }
+    })();
+  </script>
+</body>
+</html>
+
