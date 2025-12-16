@@ -210,7 +210,7 @@
             objectId: 'background_layer',
           });
           canvas.add(backgroundRect);
-          canvas.sendObjectToBack(backgroundRect);
+          backgroundRect.sendToBack();
           canvas.backgroundColor = '#ffffff';
         }
         canvas.renderAll();
@@ -336,21 +336,21 @@
         });
       }
 
-      function bringForward() { const o = canvas.getActiveObject(); if (o) { canvas.bringObjectForward(o); canvas.renderAll(); saveHistory(); } }
+      function bringForward() { const o = canvas.getActiveObject(); if (o) { o.bringForward(); canvas.renderAll(); saveHistory(); } }
       function sendBackward() {
         const o = canvas.getActiveObject();
         if (o) {
           const objs = canvas.getObjects();
           const bgIdx = objs.findIndex(x => x.objectId === 'background_layer');
-          if (objs.indexOf(o) > bgIdx + 1) { canvas.sendObjectBackwards(o); canvas.renderAll(); saveHistory(); }
+          if (objs.indexOf(o) > bgIdx + 1) { o.sendBackwards(); canvas.renderAll(); saveHistory(); }
         }
       }
-      function bringToFront() { const o = canvas.getActiveObject(); if (o) { canvas.bringObjectToFront(o); canvas.renderAll(); saveHistory(); } }
+      function bringToFront() { const o = canvas.getActiveObject(); if (o) { o.bringToFront(); canvas.renderAll(); saveHistory(); } }
       function sendToBack() {
         const o = canvas.getActiveObject();
         if (o) {
-          canvas.sendObjectToBack(o);
-          if (backgroundRect) canvas.sendObjectToBack(backgroundRect);
+          o.sendToBack();
+          if (backgroundRect) backgroundRect.sendToBack();
           canvas.renderAll();
           saveHistory();
         }
@@ -483,4 +483,5 @@
   </script>
 </body>
 </html>
+
 
