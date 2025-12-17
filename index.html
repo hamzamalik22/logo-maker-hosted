@@ -314,6 +314,47 @@
         sendSelectionUpdate();
       }
 
+      function nudgePosition(deltaX, deltaY) {
+        const obj = canvas.getActiveObject();
+        if (!obj || obj.objectId === 'background_layer') {
+          console.log('nudgePosition: No active object');
+          return;
+        }
+        obj.set({ 
+          left: obj.left + deltaX, 
+          top: obj.top + deltaY 
+        });
+        obj.setCoords();
+        canvas.renderAll();
+        saveHistory();
+        sendSelectionUpdate();
+      }
+
+      function setScale(scaleX, scaleY) {
+        const obj = canvas.getActiveObject();
+        if (!obj || obj.objectId === 'background_layer') {
+          console.log('setScale: No active object');
+          return;
+        }
+        obj.set({ 
+          scaleX: scaleX, 
+          scaleY: scaleY || scaleX 
+        });
+        obj.setCoords();
+        canvas.renderAll();
+        saveHistory();
+        sendSelectionUpdate();
+      }
+
+      function rotateObject(angleDelta) {
+        const obj = canvas.getActiveObject();
+        if (!obj || obj.objectId === 'background_layer') return;
+        obj.set({ angle: (obj.angle || 0) + angleDelta });
+        canvas.renderAll();
+        saveHistory();
+        sendSelectionUpdate();
+      }
+
       function deleteSelected() {
         canvas.getActiveObjects().forEach(obj => {
           if (obj.objectId !== 'background_layer') canvas.remove(obj);
@@ -465,6 +506,8 @@
           left: Math.round(obj.left), top: Math.round(obj.top),
           width: Math.round(obj.width * (obj.scaleX || 1)),
           height: Math.round(obj.height * (obj.scaleY || 1)),
+          scaleX: obj.scaleX || 1,
+          scaleY: obj.scaleY || 1,
           angle: Math.round(obj.angle || 0),
           fill: obj.fill, stroke: obj.stroke, strokeWidth: obj.strokeWidth, opacity: obj.opacity,
           text: obj.text, fontSize: obj.fontSize, fontFamily: obj.fontFamily, fontWeight: obj.fontWeight,
@@ -480,12 +523,26 @@
       }
 
       window.handleRNMessage = function(message) {
-        const { type, payload } = typeof message === 'string' ? JSON.parse(message) : message;
-        switch (type) {
-          case 'ADD_SHAPE': addShape(payload.shape, payload.options); break;
-          case 'ADD_TEXT': addText(payload.text, payload.options); break;
-          case 'ADD_SVG': addSVG(payload.svg); break;
-          case 'UPDATE_OBJECT': updateSelectedObject(payload.property, payload.value); break;
+        try {
+          const { type, payload } = typeof message === 'string' ? JSON.parse(message) : message;
+          console.log('Received message:', type, payload);
+          switch (type) {
+            case 'ADD_SHAPE': addShape(payload.shape, payload.options); break;
+            case 'ADD_TEXT': addText(payload.text, payload.options); break;
+            case 'ADD_SVG': addSVG(payload.svg); break;
+            case 'UPDATE_OBJECT': updateSelectedObject(payload.property, payload.value); break;
+            case 'NUDGE_POSITION': 
+              console.log('NUDGE_POSITION called with:', payload);
+              nudgePosition(payload.deltaX || 0, payload.deltaY || 0); 
+              break;
+            case 'SET_SCALE': 
+              console.log('SET_SCALE called with:', payload);
+              setScale(payload.scaleX || 1, payload.scaleY); 
+              break;
+            case 'ROTATE_OBJECT': 
+              console.log('ROTATE_OBJECT called with:', payload);
+              rotateObject(payload.angleDelta || 0); 
+              break;
           case 'DELETE_SELECTED': deleteSelected(); break;
           case 'DUPLICATE_SELECTED': duplicateSelected(); break;
           case 'BRING_FORWARD': bringForward(); break;
@@ -502,6 +559,10 @@
           case 'SELECT_LAYER': selectLayer(payload.objectId); break;
           case 'SET_THEME': document.body.classList.toggle('dark', payload.dark); break;
           case 'DESELECT': canvas.discardActiveObject(); canvas.renderAll(); break;
+          default: console.warn('Unknown message type:', type);
+        }
+        } catch(e) {
+          console.error('Error handling message:', type, e);
         }
       };
 
