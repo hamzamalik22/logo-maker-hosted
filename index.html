@@ -396,10 +396,32 @@
         }
       }
 
+      function getLayerName(obj) {
+        if (obj.type === 'i-text' || obj.type === 'text' || obj.type === 'textbox') {
+          return obj.text ? obj.text.substring(0, 20) : 'Text';
+        }
+        if (obj.type === 'rect' || obj.type === 'rectangle') return 'Rectangle';
+        if (obj.type === 'circle') return 'Circle';
+        if (obj.type === 'triangle') return 'Triangle';
+        if (obj.type === 'line') return 'Line';
+        if (obj.type === 'polygon') return 'Polygon';
+        if (obj.type === 'group') return 'Group';
+        if (obj.type === 'image') return 'Image';
+        if (obj.type === 'path') return 'Path';
+        return obj.type || 'Layer';
+      }
+
       function getLayers() {
-        const layers = canvas.getObjects()
-          .filter(o => o.objectId !== 'background_layer')
-          .map((obj, i) => ({ id: obj.objectId, type: obj.type, name: obj.objectId || obj.type, visible: obj.visible !== false, locked: !obj.selectable, index: i }))
+        const allObjects = canvas.getObjects().filter(o => o.objectId !== 'background_layer');
+        const layers = allObjects
+          .map((obj, i) => ({ 
+            id: obj.objectId, 
+            type: obj.type, 
+            name: getLayerName(obj),
+            visible: obj.visible !== false, 
+            locked: !obj.selectable, 
+            index: allObjects.length - i - 1
+          }))
           .reverse();
         sendToRN({ type: 'LAYERS_LIST', payload: { layers } });
       }
@@ -407,6 +429,15 @@
       function setLayerVisibility(id, visible) {
         const obj = canvas.getObjects().find(o => o.objectId === id);
         if (obj) { obj.set('visible', visible); canvas.renderAll(); saveHistory(); }
+      }
+
+      function setLayerLock(id, locked) {
+        const obj = canvas.getObjects().find(o => o.objectId === id);
+        if (obj && obj.objectId !== 'background_layer') {
+          obj.set({ selectable: !locked, evented: !locked });
+          canvas.renderAll();
+          saveHistory();
+        }
       }
 
       function selectLayer(id) {
@@ -467,6 +498,7 @@
           case 'EXPORT': exportCanvas(payload.format, payload.quality, payload.multiplier); break;
           case 'GET_LAYERS': getLayers(); break;
           case 'SET_LAYER_VISIBILITY': setLayerVisibility(payload.objectId, payload.visible); break;
+          case 'SET_LAYER_LOCK': setLayerLock(payload.objectId, payload.locked); break;
           case 'SELECT_LAYER': selectLayer(payload.objectId); break;
           case 'SET_THEME': document.body.classList.toggle('dark', payload.dark); break;
           case 'DESELECT': canvas.discardActiveObject(); canvas.renderAll(); break;
@@ -483,5 +515,4 @@
   </script>
 </body>
 </html>
-
 
