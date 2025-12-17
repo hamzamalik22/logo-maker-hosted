@@ -316,10 +316,7 @@
 
       function nudgePosition(deltaX, deltaY) {
         const obj = canvas.getActiveObject();
-        if (!obj || obj.objectId === 'background_layer') {
-          console.log('nudgePosition: No active object');
-          return;
-        }
+        if (!obj || obj.objectId === 'background_layer') return;
         obj.set({ 
           left: obj.left + deltaX, 
           top: obj.top + deltaY 
@@ -332,10 +329,7 @@
 
       function setScale(scaleX, scaleY) {
         const obj = canvas.getActiveObject();
-        if (!obj || obj.objectId === 'background_layer') {
-          console.log('setScale: No active object');
-          return;
-        }
+        if (!obj || obj.objectId === 'background_layer') return;
         obj.set({ 
           scaleX: scaleX, 
           scaleY: scaleY || scaleX 
@@ -525,24 +519,14 @@
       window.handleRNMessage = function(message) {
         try {
           const { type, payload } = typeof message === 'string' ? JSON.parse(message) : message;
-          console.log('Received message:', type, payload);
           switch (type) {
             case 'ADD_SHAPE': addShape(payload.shape, payload.options); break;
             case 'ADD_TEXT': addText(payload.text, payload.options); break;
             case 'ADD_SVG': addSVG(payload.svg); break;
             case 'UPDATE_OBJECT': updateSelectedObject(payload.property, payload.value); break;
-            case 'NUDGE_POSITION': 
-              console.log('NUDGE_POSITION called with:', payload);
-              nudgePosition(payload.deltaX || 0, payload.deltaY || 0); 
-              break;
-            case 'SET_SCALE': 
-              console.log('SET_SCALE called with:', payload);
-              setScale(payload.scaleX || 1, payload.scaleY); 
-              break;
-            case 'ROTATE_OBJECT': 
-              console.log('ROTATE_OBJECT called with:', payload);
-              rotateObject(payload.angleDelta || 0); 
-              break;
+            case 'NUDGE_POSITION': nudgePosition(payload.deltaX || 0, payload.deltaY || 0); break;
+            case 'SET_SCALE': setScale(payload.scaleX || 1, payload.scaleY); break;
+            case 'ROTATE_OBJECT': rotateObject(payload.angleDelta || 0); break;
           case 'DELETE_SELECTED': deleteSelected(); break;
           case 'DUPLICATE_SELECTED': duplicateSelected(); break;
           case 'BRING_FORWARD': bringForward(); break;
