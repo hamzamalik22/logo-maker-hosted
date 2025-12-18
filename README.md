@@ -1,29 +1,34 @@
 # Logo Maker (hosted)
 
-Simple single-file static demo for creating or previewing logos.
+Single-file Fabric.js canvas for creating or previewing logos; designed to embed easily in a host (e.g., React Native WebView).
 
 **Project structure**
-- `index.html`: Main static page containing the logo maker UI and logic.
+- `index.html`: All UI, canvas logic, and Fabric.js loading live here (no build step or extra assets).
 
-**Quick start**
-- Open the app in your browser by double-clicking `index.html` or serving the folder with a simple HTTP server:
+**Run locally**
+- Open `index.html` directly in a browser, or serve the folder:
+  ```bash
+  python3 -m http.server 8000
+  # visit http://localhost:8000
+  ```
 
-```bash
-# from the project root
-python3 -m http.server 8000
-# then open http://localhost:8000 in your browser
-```
+**What it does**
+- Add shapes (rect, circle, triangle, line, star, polygon) and editable text.
+- Import SVG strings into the canvas.
+- Background control (solid color or transparent checkerboard).
+- Alignment helpers: center align, snapping guides to canvas center and other objects.
+- Object transforms: move/nudge, scale, rotate, duplicate; group/ungroup; lock/hide; bring/send in stack order.
+- History and export: undo/redo; export PNG/JPEG (multiplier and quality) or SVG.
+- Canvas utilities: zoom in/out, set zoom, theme toggle (light/dark).
 
-**Features**
-- No build tools or dependencies — just a static HTML file.
-- Works offline once the files are on disk or served locally.
+**Host/app integration**
+- `window.handleRNMessage` receives commands from the host (mirrors React Native WebView `postMessage` flow).
+- Supported message types include: `ADD_SHAPE`, `ADD_TEXT`, `ADD_SVG`, `UPDATE_OBJECT`, `NUDGE_POSITION`, `SET_SCALE`, `ROTATE_OBJECT`, `SET_ZOOM`, `ZOOM_IN`, `ZOOM_OUT`, `ALIGN_CENTER_H`, `ALIGN_CENTER_V`, `DELETE_SELECTED`, `DUPLICATE_SELECTED`, `GROUP_SELECTED`, `UNGROUP_SELECTED`, `BRING_FORWARD`, `SEND_BACKWARD`, `BRING_TO_FRONT`, `SEND_TO_BACK`, `SET_BACKGROUND`, `UNDO`, `REDO`, `EXPORT`, `GET_LAYERS`, `SET_LAYER_VISIBILITY`, `SET_LAYER_LOCK`, `SELECT_LAYER`, `SET_THEME`, and `DESELECT`.
+- Events are emitted back to the host via `window.ReactNativeWebView.postMessage` when selections change, history updates, exports complete, etc.; see `sendToRN` calls in `index.html` for payload shapes.
 
-**Development**
-- Edit `index.html` to update styles, layout, or behavior.
-- Use your browser devtools for quick debugging.
+**Development notes**
+- Fabric.js is loaded from CDN in `index.html`; no package install is required.
+- Tweak sizes, colors, and behaviors directly in `index.html`; use devtools for live edits.
 
 **License**
-This project is provided under the MIT License — see LICENSE or add one if needed.
-
-**Notes**
-- Replace the placeholder content and add attribution or assets as necessary.
+MIT (add LICENSE file if you need one checked in).

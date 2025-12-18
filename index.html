@@ -315,6 +315,50 @@
         });
       }
 
+      function addImage(dataUrl, options = {}) {
+        if (!dataUrl) return;
+        try {
+          fabric.Image.fromURL(
+            dataUrl,
+            (img) => {
+              if (!img) return;
+
+              const maxW = Math.max(50, canvasWidth * 0.7);
+              const maxH = Math.max(50, canvasHeight * 0.7);
+              const iw = img.width || 1;
+              const ih = img.height || 1;
+              const scale = Math.min(maxW / iw, maxH / ih, 1);
+
+              img.set({
+                left: canvasWidth / 2,
+                top: canvasHeight / 2,
+                originX: 'center',
+                originY: 'center',
+                scaleX: scale,
+                scaleY: scale,
+                objectId: 'image_' + Date.now(),
+                ...options,
+                cornerColor: '#5956E9',
+                cornerStrokeColor: '#5956E9',
+                borderColor: '#5956E9',
+                cornerSize: 10,
+                cornerStyle: 'circle',
+                transparentCorners: false,
+              });
+
+              canvas.add(img);
+              canvas.setActiveObject(img);
+              canvas.renderAll();
+              saveHistory();
+              sendToRN({ type: 'OBJECT_ADDED', payload: getObjectInfo(img) });
+            },
+            { crossOrigin: 'anonymous' }
+          );
+        } catch (e) {
+          sendToRN({ type: 'CONSOLE_ERROR', payload: { message: 'addImage failed: ' + (e?.message || String(e)) } });
+        }
+      }
+
       function updateSelectedObject(prop, val) {
         const obj = canvas.getActiveObject();
         if (!obj) return;
@@ -706,6 +750,7 @@
             case 'ADD_SHAPE': addShape(payload.shape, payload.options); break;
             case 'ADD_TEXT': addText(payload.text, payload.options); break;
             case 'ADD_SVG': addSVG(payload.svg); break;
+            case 'ADD_IMAGE': addImage(payload.dataUrl, payload.options); break;
             case 'UPDATE_OBJECT': updateSelectedObject(payload.property, payload.value); break;
             case 'NUDGE_POSITION': nudgePosition(payload.deltaX || 0, payload.deltaY || 0); break;
             case 'SET_SCALE': setScale(payload.scaleX || 1, payload.scaleY); break;
