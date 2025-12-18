@@ -466,6 +466,42 @@
         });
       }
 
+      // Grouping helpers
+      function groupSelected() {
+        const activeObj = canvas.getActiveObject();
+        if (!activeObj) return;
+
+        // Fabric creates an ActiveSelection when multiple objects are selected
+        if (activeObj.type === 'activeSelection') {
+          const group = activeObj.toGroup();
+          if (group) {
+            // Ensure background stays at the very back
+            if (backgroundRect) {
+              backgroundRect.sendToBack();
+            }
+            canvas.renderAll();
+            saveHistory();
+            sendSelectionUpdate();
+          }
+        }
+      }
+
+      function ungroupSelected() {
+        const activeObj = canvas.getActiveObject();
+        if (!activeObj || activeObj.type !== 'group') return;
+
+        const selection = activeObj.toActiveSelection();
+        if (selection) {
+          // Keep background behind everything
+          if (backgroundRect) {
+            backgroundRect.sendToBack();
+          }
+          canvas.renderAll();
+          saveHistory();
+          sendSelectionUpdate();
+        }
+      }
+
       function bringForward() { const o = canvas.getActiveObject(); if (o) { o.bringForward(); canvas.renderAll(); saveHistory(); } }
       function sendBackward() {
         const o = canvas.getActiveObject();
@@ -624,6 +660,8 @@
             case 'ROTATE_OBJECT': rotateObject(payload.angleDelta || 0); break;
           case 'DELETE_SELECTED': deleteSelected(); break;
           case 'DUPLICATE_SELECTED': duplicateSelected(); break;
+          case 'GROUP_SELECTED': groupSelected(); break;
+          case 'UNGROUP_SELECTED': ungroupSelected(); break;
           case 'BRING_FORWARD': bringForward(); break;
           case 'SEND_BACKWARD': sendBackward(); break;
           case 'BRING_TO_FRONT': bringToFront(); break;
