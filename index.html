@@ -149,6 +149,11 @@
       let canvasWidth = 280;
       let canvasHeight = 280;
 
+      // Alignment & snapping guides
+      const SNAP_THRESHOLD = 6; // px
+      let hGuideLines = [];
+      let vGuideLines = [];
+
       function initCanvas() {
         try {
           const container = document.getElementById('canvas-container');
@@ -187,9 +192,15 @@
         canvas.on('selection:created', handleSelection);
         canvas.on('selection:updated', handleSelection);
         canvas.on('selection:cleared', () => sendToRN({ type: 'SELECTION_CLEARED' }));
-        canvas.on('object:modified', () => { saveHistory(); sendSelectionUpdate(); });
+        canvas.on('object:modified', () => { 
+          clearGuides();
+          saveHistory(); 
+          sendSelectionUpdate(); 
+        });
         canvas.on('object:added', (e) => { if (e.target?.objectId !== 'background_layer') saveHistory(); });
         canvas.on('object:removed', (e) => { if (e.target?.objectId !== 'background_layer') saveHistory(); });
+        canvas.on('object:moving', handleObjectMoving);
+        canvas.on('mouse:up', clearGuides);
       }
 
       function createBackground(color) {
@@ -346,6 +357,90 @@
         obj.set({ angle: (obj.angle || 0) + angleDelta });
         canvas.renderAll();
         saveHistory();
+        sendSelectionUpdate();
+      }
+
+      // --- Alignment & snapping helpers ---
+
+      function clearGuides() {
+        if (!canvas) return;
+        const toRemove = canvas.getObjects().filter(o => o.isGuideLine);
+        toRemove.forEach(o => canvas.remove(o));
+        hGuideLines = [];
+        vGuideLines = [];
+        canvas.renderAll();
+      }
+
+      function addGuideLine(x1, y1, x2, y2, isVertical) {
+        const line = new fabric.Line([x1, y1, x2, y2], {
+          stroke: '#5956E9',
+          strokeWidth: 1,
+          selectable: false,
+          evented: false,
+          excludeFromExport: true,
+          opacity: 0.6,
+          strokeDashArray: [4, 4],
+          isGuideLine: true,
+        });
+        canvas.add(line);
+        if (isVertical) vGuideLines.push(line);
+        else hGuideLines.push(line);
+      }
+
+      function handleObjectMoving(e) {
+        const target = e.target;
+        if (!target || target.objectId === 'background_layer') return;
+
+        clearGuides();
+
+        const center = target.getCenterPoint();
+        let snapX = center.x;
+        let snapY = center.y;
+
+        const canvasCenterX = canvasWidth / 2;
+        const canvasCenterY = canvasHeight / 2;
+
+        // Snap to canvas center
+        if (Math.abs(center.x - canvasCenterX) < SNAP_THRESHOLD) {
+          snapX = canvasCenterX;
+          addGuideLine(canvasCenterX, 0, canvasCenterX, canvasHeight, true);
+        }
+        if (Math.abs(center.y - canvasCenterY) < SNAP_THRESHOLD) {
+          snapY = canvasCenterY;
+          addGuideLine(0, canvasCenterY, canvasWidth, canvasCenterY, false);
+        }
+
+        // Snap to other object centers
+        const objects = canvas.getObjects().filter(o => 
+          o !== target && 
+          o.objectId !== 'background_layer' && 
+          !o.isGuideLine
+        );
+
+        objects.forEach(obj => {
+          const c = obj.getCenterPoint();
+
+          if (Math.abs(center.x - c.x) < SNAP_THRESHOLD) {
+            snapX = c.x;
+            addGuideLine(c.x, 0, c.x, canvasHeight, true);
+          }
+          if (Math.abs(center.y - c.y) < SNAP_THRESHOLD) {
+            snapY = c.y;
+            addGuideLine(0, c.y, canvasWidth, c.y, false);
+          }
+        });
+
+        // Apply snapped center back to object position
+        if (snapX !== center.x || snapY !== center.y) {
+          target.setPositionByOrigin(
+            new fabric.Point(snapX, snapY),
+            'center',
+            'center'
+          );
+          target.setCoords();
+        }
+
+        canvas.renderAll();
         sendSelectionUpdate();
       }
 
