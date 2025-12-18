@@ -736,7 +736,7 @@
             canvas.add(line);
             this.pathLines.push(line);
           }
-          this.controlCircles.forEach(circle => canvas.bringObjectToFront(circle));
+          this.controlCircles.forEach(circle => canvas.bringToFront(circle));
           canvas.renderAll();
         }
 
