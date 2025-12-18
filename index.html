@@ -148,6 +148,7 @@
       let backgroundRect = null;
       let canvasWidth = 280;
       let canvasHeight = 280;
+      let currentZoom = 1;
 
       // Alignment & snapping guides
       const SNAP_THRESHOLD = 6; // px
@@ -351,6 +352,27 @@
         sendSelectionUpdate();
       }
 
+      // Canvas zoom helpers
+      function setCanvasZoom(zoom) {
+        if (!canvas) return;
+        const clamped = Math.max(0.5, Math.min(3, zoom || 1));
+        const center = new fabric.Point(canvasWidth / 2, canvasHeight / 2);
+        canvas.zoomToPoint(center, clamped);
+        currentZoom = clamped;
+        canvas.renderAll();
+        sendToRN({ type: 'CANVAS_ZOOM', payload: { zoom: currentZoom } });
+      }
+
+      function zoomIn(step) {
+        const delta = typeof step === 'number' ? step : 0.1;
+        setCanvasZoom(currentZoom + delta);
+      }
+
+      function zoomOut(step) {
+        const delta = typeof step === 'number' ? step : 0.1;
+        setCanvasZoom(currentZoom - delta);
+      }
+
       function rotateObject(angleDelta) {
         const obj = canvas.getActiveObject();
         if (!obj || obj.objectId === 'background_layer') return;
@@ -360,7 +382,33 @@
         sendSelectionUpdate();
       }
 
-      // --- Alignment & snapping helpers ---
+      // --- Alignment helpers (canvas center + snapping guides) ---
+
+      function alignCenterHorizontal() {
+        const obj = canvas.getActiveObject();
+        if (!obj || obj.objectId === 'background_layer') return;
+        const center = obj.getCenterPoint();
+        const newCenter = new fabric.Point(canvasWidth / 2, center.y);
+        obj.setPositionByOrigin(newCenter, 'center', 'center');
+        obj.setCoords();
+        canvas.renderAll();
+        saveHistory();
+        sendSelectionUpdate();
+      }
+
+      function alignCenterVertical() {
+        const obj = canvas.getActiveObject();
+        if (!obj || obj.objectId === 'background_layer') return;
+        const center = obj.getCenterPoint();
+        const newCenter = new fabric.Point(center.x, canvasHeight / 2);
+        obj.setPositionByOrigin(newCenter, 'center', 'center');
+        obj.setCoords();
+        canvas.renderAll();
+        saveHistory();
+        sendSelectionUpdate();
+      }
+
+      // --- Snapping guides ---
 
       function clearGuides() {
         if (!canvas) return;
@@ -475,6 +523,10 @@
         if (activeObj.type === 'activeSelection') {
           const group = activeObj.toGroup();
           if (group) {
+            // Ensure the group has a stable unique id so layer keys are unique
+            if (!group.objectId) {
+              group.objectId = 'group_' + Date.now();
+            }
             // Ensure background stays at the very back
             if (backgroundRect) {
               backgroundRect.sendToBack();
@@ -581,7 +633,7 @@
         const allObjects = canvas.getObjects().filter(o => o.objectId !== 'background_layer');
         const layers = allObjects
           .map((obj, i) => ({ 
-            id: obj.objectId, 
+            id: obj.objectId || ('layer_' + i), 
             type: obj.type, 
             name: getLayerName(obj),
             visible: obj.visible !== false, 
@@ -658,6 +710,11 @@
             case 'NUDGE_POSITION': nudgePosition(payload.deltaX || 0, payload.deltaY || 0); break;
             case 'SET_SCALE': setScale(payload.scaleX || 1, payload.scaleY); break;
             case 'ROTATE_OBJECT': rotateObject(payload.angleDelta || 0); break;
+            case 'SET_ZOOM': setCanvasZoom(payload.zoom); break;
+            case 'ZOOM_IN': zoomIn(payload?.step); break;
+            case 'ZOOM_OUT': zoomOut(payload?.step); break;
+            case 'ALIGN_CENTER_H': alignCenterHorizontal(); break;
+            case 'ALIGN_CENTER_V': alignCenterVertical(); break;
           case 'DELETE_SELECTED': deleteSelected(); break;
           case 'DUPLICATE_SELECTED': duplicateSelected(); break;
           case 'GROUP_SELECTED': groupSelected(); break;
