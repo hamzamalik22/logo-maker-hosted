@@ -155,6 +155,11 @@
       let hGuideLines = [];
       let vGuideLines = [];
 
+      // Pen Tool
+      let penTool = null;
+      let penToolActive = false;
+      let penToolMode = 'shape'; // 'shape' or 'path'
+
       function initCanvas() {
         try {
           const container = document.getElementById('canvas-container');
@@ -201,7 +206,22 @@
         canvas.on('object:added', (e) => { if (e.target?.objectId !== 'background_layer') saveHistory(); });
         canvas.on('object:removed', (e) => { if (e.target?.objectId !== 'background_layer') saveHistory(); });
         canvas.on('object:moving', handleObjectMoving);
-        canvas.on('mouse:up', clearGuides);
+        canvas.on('mouse:up', (e) => {
+          clearGuides();
+          if (penToolActive && penTool) {
+            penTool.handleMouseUp(e);
+          }
+        });
+        canvas.on('mouse:down', (e) => {
+          if (penToolActive && penTool) {
+            penTool.handleMouseDown(e);
+          }
+        });
+        canvas.on('mouse:move', (e) => {
+          if (penToolActive && penTool) {
+            penTool.handleMouseMove(e);
+          }
+        });
       }
 
       function createBackground(color) {
@@ -451,6 +471,426 @@
         saveHistory();
         sendSelectionUpdate();
       }
+
+      function alignLeft() {
+        const activeSelection = canvas.getActiveObject();
+        if (!activeSelection || activeSelection.objectId === 'background_layer') return;
+
+        if (activeSelection.type === 'activeselection' && activeSelection.getObjects().length >= 2) {
+          // Multiple objects: align to left edge of selection bounds
+          const bounds = activeSelection.getBoundingRect();
+          const objects = activeSelection.getObjects();
+          objects.forEach(obj => {
+            obj.set({ left: bounds.left });
+            obj.setCoords();
+          });
+        } else {
+          // Single object: align to left edge of canvas
+          const obj = activeSelection;
+          const left = 0;
+          obj.set({ left: left });
+          obj.setCoords();
+        }
+        canvas.renderAll();
+        saveHistory();
+        sendSelectionUpdate();
+      }
+
+      function alignRight() {
+        const activeSelection = canvas.getActiveObject();
+        if (!activeSelection || activeSelection.objectId === 'background_layer') return;
+
+        if (activeSelection.type === 'activeselection' && activeSelection.getObjects().length >= 2) {
+          // Multiple objects: align to right edge of selection bounds
+          const bounds = activeSelection.getBoundingRect();
+          const objects = activeSelection.getObjects();
+          objects.forEach(obj => {
+            obj.set({ left: bounds.left + bounds.width - obj.getScaledWidth() });
+            obj.setCoords();
+          });
+        } else {
+          // Single object: align to right edge of canvas
+          const obj = activeSelection;
+          const left = canvasWidth - obj.getScaledWidth();
+          obj.set({ left: left });
+          obj.setCoords();
+        }
+        canvas.renderAll();
+        saveHistory();
+        sendSelectionUpdate();
+      }
+
+      function alignTop() {
+        const activeSelection = canvas.getActiveObject();
+        if (!activeSelection || activeSelection.objectId === 'background_layer') return;
+
+        if (activeSelection.type === 'activeselection' && activeSelection.getObjects().length >= 2) {
+          // Multiple objects: align to top edge of selection bounds
+          const bounds = activeSelection.getBoundingRect();
+          const objects = activeSelection.getObjects();
+          objects.forEach(obj => {
+            obj.set({ top: bounds.top });
+            obj.setCoords();
+          });
+        } else {
+          // Single object: align to top edge of canvas
+          const obj = activeSelection;
+          const top = 0;
+          obj.set({ top: top });
+          obj.setCoords();
+        }
+        canvas.renderAll();
+        saveHistory();
+        sendSelectionUpdate();
+      }
+
+      function alignBottom() {
+        const activeSelection = canvas.getActiveObject();
+        if (!activeSelection || activeSelection.objectId === 'background_layer') return;
+
+        if (activeSelection.type === 'activeselection' && activeSelection.getObjects().length >= 2) {
+          // Multiple objects: align to bottom edge of selection bounds
+          const bounds = activeSelection.getBoundingRect();
+          const objects = activeSelection.getObjects();
+          objects.forEach(obj => {
+            obj.set({ top: bounds.top + bounds.height - obj.getScaledHeight() });
+            obj.setCoords();
+          });
+        } else {
+          // Single object: align to bottom edge of canvas
+          const obj = activeSelection;
+          const top = canvasHeight - obj.getScaledHeight();
+          obj.set({ top: top });
+          obj.setCoords();
+        }
+        canvas.renderAll();
+        saveHistory();
+        sendSelectionUpdate();
+      }
+
+      // --- Pen Tool Implementation ---
+
+      class PenTool {
+        constructor() {
+          this.isActive = false;
+          this.mode = 'shape'; // 'shape' or 'path'
+          this.points = [];
+          this.tempLines = [];
+          this.tempCircles = [];
+          this.pathPoints = [];
+          this.pathLines = [];
+          this.controlCircles = [];
+          this.currentPathObject = null;
+          this.isDraggingPoint = false;
+          this.draggedPointIndex = -1;
+          this.previewLine = null;
+        }
+
+        setMode(mode) {
+          if (this.mode !== mode) {
+            this.cleanup();
+            this.mode = mode;
+          }
+        }
+
+        activate() {
+          this.isActive = true;
+          this.cleanup();
+          penToolActive = true;
+          canvas.defaultCursor = 'crosshair';
+          canvas.hoverCursor = 'crosshair';
+          canvas.selection = false;
+          canvas.forEachObject((obj) => {
+            if (obj.objectId !== 'background_layer') {
+              obj.selectable = false;
+              obj.evented = false;
+            }
+          });
+          canvas.renderAll();
+        }
+
+        deactivate() {
+          this.isActive = false;
+          this.cleanup();
+          penToolActive = false;
+          canvas.defaultCursor = 'default';
+          canvas.hoverCursor = 'move';
+          canvas.selection = true;
+          canvas.forEachObject((obj) => {
+            if (obj.objectId !== 'background_layer') {
+              obj.selectable = true;
+              obj.evented = true;
+            }
+          });
+          canvas.renderAll();
+        }
+
+        cleanup() {
+          this.tempCircles.forEach(circle => {
+            try { canvas.remove(circle); } catch (e) {}
+          });
+          this.tempLines.forEach(line => {
+            try { canvas.remove(line); } catch (e) {}
+          });
+          this.controlCircles.forEach(circle => {
+            try { canvas.remove(circle); } catch (e) {}
+          });
+          this.pathLines.forEach(line => {
+            try { canvas.remove(line); } catch (e) {}
+          });
+          if (this.previewLine) {
+            try { canvas.remove(this.previewLine); } catch (e) {}
+            this.previewLine = null;
+          }
+          if (this.currentPathObject) {
+            try { canvas.remove(this.currentPathObject); } catch (e) {}
+            this.currentPathObject = null;
+          }
+          this.tempCircles = [];
+          this.tempLines = [];
+          this.points = [];
+          this.pathPoints = [];
+          this.controlCircles = [];
+          this.pathLines = [];
+          this.isDraggingPoint = false;
+          this.draggedPointIndex = -1;
+          canvas.renderAll();
+        }
+
+        handleMouseDown(event) {
+          if (!this.isActive) return;
+          if (event.e) event.e.preventDefault();
+          const pointer = canvas.getPointer(event.e);
+
+          if (this.mode === 'path') {
+            this.handlePathModeMouseDown(pointer);
+          } else {
+            this.handleShapeModeMouseDown(pointer);
+          }
+        }
+
+        handleShapeModeMouseDown(pointer) {
+          if (this.points.length > 2) {
+            const firstPoint = this.points[0];
+            const distance = Math.sqrt(
+              Math.pow(pointer.x - firstPoint.x, 2) + Math.pow(pointer.y - firstPoint.y, 2)
+            );
+            if (distance < 15) {
+              this.finalizeShapePath(true);
+              return;
+            }
+          }
+          this.addShapePoint(pointer);
+        }
+
+        handlePathModeMouseDown(pointer) {
+          if (this.pathPoints.length > 0) {
+            for (let i = 0; i < this.pathPoints.length; i++) {
+              const point = this.pathPoints[i];
+              const distance = Math.sqrt(
+                Math.pow(pointer.x - point.x, 2) + Math.pow(pointer.y - point.y, 2)
+              );
+              if (distance < 12) {
+                this.isDraggingPoint = true;
+                this.draggedPointIndex = i;
+                return;
+              }
+            }
+          }
+          if (this.pathPoints.length >= 6) return;
+          this.addPathPoint(pointer);
+        }
+
+        addPathPoint(pointer) {
+          const point = { x: pointer.x, y: pointer.y };
+          this.pathPoints.push(point);
+          const circle = new fabric.Circle({
+            left: point.x, top: point.y, radius: 8,
+            fill: '#5956E9', stroke: '#ffffff', strokeWidth: 3,
+            selectable: false, evented: false, hasControls: false, hasBorders: false,
+            originX: 'center', originY: 'center',
+            objectId: `path_control_${this.pathPoints.length}`
+          });
+          canvas.add(circle);
+          this.controlCircles.push(circle);
+          if (this.pathPoints.length >= 2) {
+            this.updatePathVisualization();
+          }
+          canvas.renderAll();
+        }
+
+        updatePathVisualization() {
+          this.pathLines.forEach(line => canvas.remove(line));
+          this.pathLines = [];
+          if (this.currentPathObject) {
+            canvas.remove(this.currentPathObject);
+            this.currentPathObject = null;
+          }
+          for (let i = 0; i < this.pathPoints.length - 1; i++) {
+            const p1 = this.pathPoints[i];
+            const p2 = this.pathPoints[i + 1];
+            const line = new fabric.Line([p1.x, p1.y, p2.x, p2.y], {
+              stroke: '#000000', strokeWidth: 3, selectable: false, evented: false,
+              strokeLineCap: 'round', objectId: `path_line_${i}`
+            });
+            canvas.add(line);
+            this.pathLines.push(line);
+          }
+          this.controlCircles.forEach(circle => canvas.bringObjectToFront(circle));
+          canvas.renderAll();
+        }
+
+        handleMouseMove(event) {
+          if (!this.isActive) return;
+          const pointer = canvas.getPointer(event.e);
+
+          if (this.mode === 'path') {
+            this.handlePathModeMouseMove(pointer);
+          } else {
+            this.handleShapeModeMouseMove(pointer);
+          }
+        }
+
+        handleShapeModeMouseMove(pointer) {
+          if (this.points.length === 0) return;
+          if (this.previewLine) {
+            canvas.remove(this.previewLine);
+            this.previewLine = null;
+          }
+          const lastPoint = this.points[this.points.length - 1];
+          this.previewLine = new fabric.Line(
+            [lastPoint.x, lastPoint.y, pointer.x, pointer.y],
+            { stroke: '#5956E9', strokeWidth: 2, strokeDashArray: [5, 5],
+              selectable: false, evented: false, opacity: 0.6, objectId: 'preview_line' }
+          );
+          canvas.add(this.previewLine);
+          canvas.renderAll();
+        }
+
+        handlePathModeMouseMove(pointer) {
+          if (this.isDraggingPoint && this.draggedPointIndex >= 0) {
+            this.pathPoints[this.draggedPointIndex] = { x: pointer.x, y: pointer.y };
+            const circle = this.controlCircles[this.draggedPointIndex];
+            if (circle) {
+              circle.set({ left: pointer.x, top: pointer.y });
+            }
+            this.updatePathVisualization();
+            canvas.renderAll();
+            return;
+          }
+          if (this.pathPoints.length > 0 && this.pathPoints.length < 6) {
+            if (this.previewLine) {
+              canvas.remove(this.previewLine);
+              this.previewLine = null;
+            }
+            const lastPoint = this.pathPoints[this.pathPoints.length - 1];
+            this.previewLine = new fabric.Line(
+              [lastPoint.x, lastPoint.y, pointer.x, pointer.y],
+              { stroke: '#5956E9', strokeWidth: 2, strokeDashArray: [5, 5],
+                selectable: false, evented: false, opacity: 0.6, objectId: 'preview_line' }
+            );
+            canvas.add(this.previewLine);
+            canvas.renderAll();
+          }
+        }
+
+        handleMouseUp(event) {
+          if (!this.isActive) return;
+          if (this.mode === 'path' && this.isDraggingPoint) {
+            this.isDraggingPoint = false;
+            this.draggedPointIndex = -1;
+          }
+        }
+
+        addShapePoint(pointer) {
+          const point = { x: pointer.x, y: pointer.y };
+          this.points.push(point);
+          const circle = new fabric.Circle({
+            left: point.x, top: point.y, radius: 5,
+            fill: '#5956E9', stroke: '#ffffff', strokeWidth: 2,
+            selectable: false, evented: false, hasControls: false, hasBorders: false,
+            originX: 'center', originY: 'center',
+            objectId: `point_marker_${this.points.length}`
+          });
+          canvas.add(circle);
+          this.tempCircles.push(circle);
+          if (this.points.length > 1) {
+            const prevPoint = this.points[this.points.length - 2];
+            const line = new fabric.Line([prevPoint.x, prevPoint.y, point.x, point.y], {
+              stroke: '#000000', strokeWidth: 2, selectable: false, evented: false,
+              objectId: `temp_line_${this.points.length}`
+            });
+            canvas.add(line);
+            this.tempLines.push(line);
+          }
+          canvas.renderAll();
+        }
+
+        finalizeShapePath(closed = false) {
+          if (this.points.length < 2) {
+            this.cleanup();
+            return;
+          }
+          let pathData = `M ${this.points[0].x} ${this.points[0].y}`;
+          for (let i = 1; i < this.points.length; i++) {
+            pathData += ` L ${this.points[i].x} ${this.points[i].y}`;
+          }
+          if (closed) pathData += ' Z';
+          if (this.previewLine) {
+            canvas.remove(this.previewLine);
+            this.previewLine = null;
+          }
+          const path = new fabric.Path(pathData, {
+            fill: closed ? '#b3b3b3' : 'transparent',
+            stroke: '#000000', strokeWidth: 2,
+            objectCaching: false, selectable: true, evented: true,
+            cornerStrokeColor: "#b3b3b3", cornerStyle: "circle", cornerSize: 10,
+            transparentCorners: false, borderColor: "#5956E9", borderScaleFactor: 1,
+            objectId: 'pen_shape_' + Date.now(), type: 'pen-shape'
+          });
+          this.cleanup();
+          canvas.add(path);
+          canvas.setActiveObject(path);
+          canvas.renderAll();
+          saveHistory();
+          sendToRN({ type: 'OBJECT_ADDED', payload: getObjectInfo(path) });
+          this.deactivate();
+        }
+
+        finalizePathMode() {
+          if (this.pathPoints.length < 2) {
+            this.cleanup();
+            return;
+          }
+          let pathData = `M ${this.pathPoints[0].x} ${this.pathPoints[0].y}`;
+          for (let i = 1; i < this.pathPoints.length; i++) {
+            pathData += ` L ${this.pathPoints[i].x} ${this.pathPoints[i].y}`;
+          }
+          if (this.previewLine) {
+            canvas.remove(this.previewLine);
+            this.previewLine = null;
+          }
+          const finalPath = new fabric.Path(pathData, {
+            fill: 'transparent', stroke: '#000000', strokeWidth: 3,
+            strokeLineCap: 'round', strokeLineJoin: 'round',
+            objectCaching: false, selectable: true, evented: true,
+            cornerStrokeColor: "#b3b3b3", cornerStyle: "circle", cornerSize: 10,
+            transparentCorners: false, borderColor: "#5956E9", borderScaleFactor: 1,
+            objectId: 'pen_path_' + Date.now(), type: 'pen-path',
+            customType: 'editablePath', pathPoints: [...this.pathPoints]
+          });
+          this.cleanup();
+          canvas.add(finalPath);
+          canvas.setActiveObject(finalPath);
+          canvas.renderAll();
+          saveHistory();
+          sendToRN({ type: 'OBJECT_ADDED', payload: getObjectInfo(finalPath) });
+          this.deactivate();
+        }
+      }
+
+      // Initialize pen tool
+      penTool = new PenTool();
 
       // --- Snapping guides ---
 
@@ -751,6 +1191,27 @@
             case 'ADD_TEXT': addText(payload.text, payload.options); break;
             case 'ADD_SVG': addSVG(payload.svg); break;
             case 'ADD_IMAGE': addImage(payload.dataUrl, payload.options); break;
+            case 'PEN_TOOL_ACTIVATE': 
+              if (penTool) {
+                penTool.setMode(payload?.mode || 'shape');
+                penTool.activate();
+              }
+              break;
+            case 'PEN_TOOL_DEACTIVATE': 
+              if (penTool) penTool.deactivate(); 
+              break;
+            case 'PEN_TOOL_SET_MODE': 
+              if (penTool) penTool.setMode(payload?.mode || 'shape'); 
+              break;
+            case 'PEN_TOOL_FINALIZE_SHAPE': 
+              if (penTool) penTool.finalizeShapePath(false); 
+              break;
+            case 'PEN_TOOL_FINALIZE_PATH': 
+              if (penTool) penTool.finalizePathMode(); 
+              break;
+            case 'PEN_TOOL_CANCEL': 
+              if (penTool) { penTool.cleanup(); penTool.deactivate(); } 
+              break;
             case 'UPDATE_OBJECT': updateSelectedObject(payload.property, payload.value); break;
             case 'NUDGE_POSITION': nudgePosition(payload.deltaX || 0, payload.deltaY || 0); break;
             case 'SET_SCALE': setScale(payload.scaleX || 1, payload.scaleY); break;
@@ -760,6 +1221,10 @@
             case 'ZOOM_OUT': zoomOut(payload?.step); break;
             case 'ALIGN_CENTER_H': alignCenterHorizontal(); break;
             case 'ALIGN_CENTER_V': alignCenterVertical(); break;
+            case 'ALIGN_LEFT': alignLeft(); break;
+            case 'ALIGN_RIGHT': alignRight(); break;
+            case 'ALIGN_TOP': alignTop(); break;
+            case 'ALIGN_BOTTOM': alignBottom(); break;
           case 'DELETE_SELECTED': deleteSelected(); break;
           case 'DUPLICATE_SELECTED': duplicateSelected(); break;
           case 'GROUP_SELECTED': groupSelected(); break;
