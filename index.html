@@ -894,9 +894,15 @@
             objectCaching: false, selectable: true, evented: true,
             cornerStrokeColor: "#b3b3b3", cornerStyle: "circle", cornerSize: 10,
             transparentCorners: false, borderColor: "#5956E9", borderScaleFactor: 1,
-            objectId: 'pen_shape_' + Date.now(), type: 'pen-shape',
-            customType: 'editableShape', shapePoints: relativePoints, isClosed: closed
+            objectId: 'pen_shape_' + Date.now()
           });
+          // Set custom properties after creation (Fabric.js may not preserve them in constructor)
+          path.set({
+            customType: 'editableShape',
+            shapePoints: relativePoints,
+            isClosed: closed
+          });
+          console.log('Created pen shape with points:', relativePoints);
           this.cleanup();
           canvas.add(path);
           canvas.setActiveObject(path);
@@ -933,9 +939,14 @@
             objectCaching: false, selectable: true, evented: true,
             cornerStrokeColor: "#b3b3b3", cornerStyle: "circle", cornerSize: 10,
             transparentCorners: false, borderColor: "#5956E9", borderScaleFactor: 1,
-            objectId: 'pen_path_' + Date.now(), type: 'pen-path',
-            customType: 'editablePath', pathPoints: relativePoints
+            objectId: 'pen_path_' + Date.now()
           });
+          // Set custom properties after creation (Fabric.js may not preserve them in constructor)
+          finalPath.set({
+            customType: 'editablePath',
+            pathPoints: relativePoints
+          });
+          console.log('Created pen path with points:', relativePoints);
           this.cleanup();
           canvas.add(finalPath);
           canvas.setActiveObject(finalPath);
@@ -962,9 +973,17 @@
         }
 
         activate(obj) {
-          if (!obj || (obj.type !== 'pen-shape' && obj.type !== 'pen-path')) return;
-          if (obj.customType !== 'editableShape' && obj.customType !== 'editablePath') return;
+          if (!obj) return;
+          // Check if it's a pen-created shape/path by looking for customType or point arrays
+          const isEditableShape = obj.customType === 'editableShape' || (obj.shapePoints && obj.shapePoints.length > 0);
+          const isEditablePath = obj.customType === 'editablePath' || (obj.pathPoints && obj.pathPoints.length > 0);
           
+          if (!isEditableShape && !isEditablePath) {
+            console.log('ShapeEditor: Not editable - customType:', obj.customType, 'shapePoints:', obj.shapePoints, 'pathPoints:', obj.pathPoints);
+            return;
+          }
+          
+          console.log('ShapeEditor: Activating for object', obj.objectId, 'points:', obj.shapePoints || obj.pathPoints);
           this.isActive = true;
           this.editingObject = obj;
           this.showControlPoints();
@@ -979,12 +998,19 @@
         }
 
         showControlPoints() {
-          if (!this.editingObject) return;
+          if (!this.editingObject) {
+            console.log('ShapeEditor: No editing object');
+            return;
+          }
           
           this.hideControlPoints(); // Clear any existing points
           
           const points = this.editingObject.shapePoints || this.editingObject.pathPoints || [];
-          if (points.length === 0) return;
+          console.log('ShapeEditor: Showing control points, count:', points.length, 'points:', points);
+          if (points.length === 0) {
+            console.log('ShapeEditor: No points found');
+            return;
+          }
 
           // Points are stored relative to object's origin (left, top)
           const obj = this.editingObject;
@@ -1366,10 +1392,14 @@
         const sel = e.selected[0];
         if (sel && sel.objectId !== 'background_layer') {
           // Automatically activate shape editor for pen-created shapes/paths
-          if (!penToolActive && sel && 
-              (sel.type === 'pen-shape' || sel.type === 'pen-path') &&
-              (sel.customType === 'editableShape' || sel.customType === 'editablePath')) {
-            shapeEditor.activate(sel);
+          if (!penToolActive && sel) {
+            const isEditableShape = sel.customType === 'editableShape' || (sel.shapePoints && sel.shapePoints.length > 0);
+            const isEditablePath = sel.customType === 'editablePath' || (sel.pathPoints && sel.pathPoints.length > 0);
+            if (isEditableShape || isEditablePath) {
+              shapeEditor.activate(sel);
+            } else {
+              shapeEditor.deactivate();
+            }
           } else {
             shapeEditor.deactivate();
           }
@@ -1382,7 +1412,21 @@
       function sendSelectionUpdate() {
         const obj = canvas.getActiveObject();
         if (obj && obj.objectId !== 'background_layer') {
+          // Automatically activate shape editor for pen-created shapes/paths
+          if (!penToolActive && obj) {
+            const isEditableShape = obj.customType === 'editableShape' || (obj.shapePoints && obj.shapePoints.length > 0);
+            const isEditablePath = obj.customType === 'editablePath' || (obj.pathPoints && obj.pathPoints.length > 0);
+            if (isEditableShape || isEditablePath) {
+              shapeEditor.activate(obj);
+            } else {
+              shapeEditor.deactivate();
+            }
+          } else {
+            shapeEditor.deactivate();
+          }
           sendToRN({ type: 'SELECTION_CHANGED', payload: getObjectInfo(obj) });
+        } else {
+          shapeEditor.deactivate();
         }
       }
 
