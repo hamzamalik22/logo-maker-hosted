@@ -142,7 +142,67 @@
         return;
       }
 
-      updateStatus('Library loaded, initializing canvas...');
+      updateStatus('Library loaded, loading fonts...');
+
+      // Preload fonts for Fabric.js
+      const fontFamilies = [
+        'Inter', 'Roboto', 'Open Sans', 'Lato', 'Montserrat', 
+        'Poppins', 'Work Sans', 'Source Sans Pro',
+        'Arial', 'Helvetica', 'Georgia', 'Times New Roman', 
+        'Courier New', 'Verdana', 'Impact', 'Comic Sans MS'
+      ];
+
+      function preloadFonts() {
+        return new Promise((resolve) => {
+          // Create a test element to force font loading
+          const testEl = document.createElement('div');
+          testEl.style.position = 'absolute';
+          testEl.style.visibility = 'hidden';
+          testEl.style.fontSize = '12px';
+          document.body.appendChild(testEl);
+          
+          let loadedCount = 0;
+          const totalFonts = fontFamilies.length;
+          let checkAttempts = 0;
+          const maxAttempts = 50; // 5 seconds max
+          
+          function checkFont(font) {
+            return new Promise((fontResolve) => {
+              testEl.style.fontFamily = font;
+              const testFont = window.getComputedStyle(testEl).fontFamily;
+              
+              // Check if font is loaded using Font Loading API if available
+              if (document.fonts && document.fonts.check) {
+                const fontName = font.includes(' ') ? `"${font}"` : font;
+                if (document.fonts.check(`12px ${fontName}`)) {
+                  fontResolve(true);
+                  return;
+                }
+              }
+              
+              // Fallback: wait a bit and check again
+              setTimeout(() => {
+                if (document.fonts && document.fonts.check) {
+                  const fontName = font.includes(' ') ? `"${font}"` : font;
+                  if (document.fonts.check(`12px ${fontName}`)) {
+                    fontResolve(true);
+                    return;
+                  }
+                }
+                // Even if not confirmed, assume it's loading and continue
+                fontResolve(true);
+              }, 100);
+            });
+          }
+          
+          // Check all fonts
+          Promise.all(fontFamilies.map(checkFont)).then(() => {
+            document.body.removeChild(testEl);
+            // Give a bit more time for fonts to fully register
+            setTimeout(resolve, 300);
+          });
+        });
+      }
 
       let canvas = null;
       let historyStack = [];
@@ -479,12 +539,20 @@
         sendToRN({ type: 'OBJECT_ADDED', payload: getObjectInfo(shape) });
       }
 
+      function normalizeFontFamily(fontFamily) {
+        if (!fontFamily) return 'Arial';
+        // Fonts with spaces need to be quoted for CSS
+        // But Fabric.js expects them without quotes
+        return fontFamily;
+      }
+
       function addText(text, options = {}) {
+        const fontFamily = normalizeFontFamily(options.fontFamily || 'Arial');
         const textObj = new fabric.IText(text || 'Your Text', {
           left: canvasWidth / 2, top: canvasHeight / 2,
           originX: 'center', originY: 'center',
           fontSize: options.fontSize || 32,
-          fontFamily: options.fontFamily || 'Arial',
+          fontFamily: fontFamily,
           fontWeight: options.fontWeight || 'normal',
           fill: options.fill || '#000000',
           textAlign: options.textAlign || 'center',
@@ -566,6 +634,7 @@
         if (!obj) return;
         if (prop === 'fontSize') val = parseInt(val);
         else if (prop === 'strokeWidth') val = parseFloat(val);
+        else if (prop === 'fontFamily') val = normalizeFontFamily(val);
         obj.set(prop, val);
         canvas.renderAll();
         saveHistory();
@@ -1539,11 +1608,19 @@
         }
       };
 
-      // Initialize when DOM ready
+      // Initialize after fonts are loaded
       if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', initCanvas);
+        document.addEventListener('DOMContentLoaded', () => {
+          preloadFonts().then(() => {
+            updateStatus('Fonts loaded, initializing canvas...');
+            initCanvas();
+          });
+        });
       } else {
-        initCanvas();
+        preloadFonts().then(() => {
+          updateStatus('Fonts loaded, initializing canvas...');
+          initCanvas();
+        });
       }
     })();
   </script>
