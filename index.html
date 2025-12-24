@@ -1421,8 +1421,16 @@
       }
 
       function getObjectInfo(obj) {
+        // Access custom properties - try both direct access and get() method
+        const customType = obj.customType || obj.get?.('customType') || null;
+        const shapePoints = obj.shapePoints || obj.get?.('shapePoints') || null;
+        const pathPoints = obj.pathPoints || obj.get?.('pathPoints') || null;
+        
         return {
           objectId: obj.objectId, type: obj.type,
+          customType: customType,
+          shapePoints: shapePoints,
+          pathPoints: pathPoints,
           left: Math.round(obj.left), top: Math.round(obj.top),
           width: Math.round(obj.width * (obj.scaleX || 1)),
           height: Math.round(obj.height * (obj.scaleY || 1)),
