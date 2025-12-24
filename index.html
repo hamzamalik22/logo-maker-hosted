@@ -197,24 +197,63 @@
       function setupEventListeners() {
         canvas.on('selection:created', handleSelection);
         canvas.on('selection:updated', handleSelection);
-        canvas.on('selection:cleared', () => sendToRN({ type: 'SELECTION_CLEARED' }));
+        canvas.on('selection:cleared', () => {
+          shapeEditor.deactivate();
+          sendToRN({ type: 'SELECTION_CLEARED' });
+        });
         canvas.on('object:modified', () => { 
           clearGuides();
+          // Update control points if shape editor is active
+          if (shapeEditor.isActive) {
+            shapeEditor.updateControlPoints();
+          }
           saveHistory(); 
           sendSelectionUpdate(); 
         });
         canvas.on('object:added', (e) => { if (e.target?.objectId !== 'background_layer') saveHistory(); });
         canvas.on('object:removed', (e) => { if (e.target?.objectId !== 'background_layer') saveHistory(); });
-        canvas.on('object:moving', handleObjectMoving);
+        canvas.on('object:moving', (e) => {
+          handleObjectMoving(e);
+          // Update control points if shape editor is active
+          if (shapeEditor.isActive && shapeEditor.editingObject === e.target) {
+            shapeEditor.updateControlPoints();
+          }
+        });
+        canvas.on('object:scaling', (e) => {
+          // Update control points if shape editor is active
+          if (shapeEditor.isActive && shapeEditor.editingObject === e.target) {
+            shapeEditor.updateControlPoints();
+          }
+        });
+        canvas.on('object:rotating', (e) => {
+          // Update control points if shape editor is active
+          if (shapeEditor.isActive && shapeEditor.editingObject === e.target) {
+            shapeEditor.updateControlPoints();
+          }
+        });
         canvas.on('mouse:up', (e) => {
           clearGuides();
           if (penToolActive && penTool) {
             penTool.handleMouseUp(e);
+          } else if (shapeEditor.isActive) {
+            shapeEditor.handleMouseUp(e);
           }
         });
         canvas.on('mouse:down', (e) => {
           if (penToolActive && penTool) {
             penTool.handleMouseDown(e);
+          } else if (shapeEditor.isActive) {
+            if (shapeEditor.handleMouseDown(e)) {
+              e.e.preventDefault();
+              e.e.stopPropagation();
+            }
+          }
+        });
+        canvas.on('mouse:move', (e) => {
+          if (penToolActive && penTool) {
+            penTool.handleMouseMove(e);
+          } else if (shapeEditor.isActive) {
+            shapeEditor.handleMouseMove(e);
           }
         });
         canvas.on('mouse:move', (e) => {
@@ -597,6 +636,8 @@
           this.isActive = true;
           this.cleanup();
           penToolActive = true;
+          // Deactivate shape editor when pen tool is active
+          if (shapeEditor) shapeEditor.deactivate();
           canvas.defaultCursor = 'crosshair';
           canvas.hoverCursor = 'crosshair';
           canvas.selection = false;
@@ -831,9 +872,14 @@
             this.cleanup();
             return;
           }
-          let pathData = `M ${this.points[0].x} ${this.points[0].y}`;
-          for (let i = 1; i < this.points.length; i++) {
-            pathData += ` L ${this.points[i].x} ${this.points[i].y}`;
+          // Store points relative to path's origin (top-left of bounding box)
+          const minX = Math.min(...this.points.map(p => p.x));
+          const minY = Math.min(...this.points.map(p => p.y));
+          const relativePoints = this.points.map(p => ({ x: p.x - minX, y: p.y - minY }));
+          
+          let pathData = `M ${relativePoints[0].x} ${relativePoints[0].y}`;
+          for (let i = 1; i < relativePoints.length; i++) {
+            pathData += ` L ${relativePoints[i].x} ${relativePoints[i].y}`;
           }
           if (closed) pathData += ' Z';
           if (this.previewLine) {
@@ -841,12 +887,15 @@
             this.previewLine = null;
           }
           const path = new fabric.Path(pathData, {
+            left: minX,
+            top: minY,
             fill: closed ? '#b3b3b3' : 'transparent',
             stroke: '#000000', strokeWidth: 2,
             objectCaching: false, selectable: true, evented: true,
             cornerStrokeColor: "#b3b3b3", cornerStyle: "circle", cornerSize: 10,
             transparentCorners: false, borderColor: "#5956E9", borderScaleFactor: 1,
-            objectId: 'pen_shape_' + Date.now(), type: 'pen-shape'
+            objectId: 'pen_shape_' + Date.now(), type: 'pen-shape',
+            customType: 'editableShape', shapePoints: relativePoints, isClosed: closed
           });
           this.cleanup();
           canvas.add(path);
@@ -863,22 +912,29 @@
             this.cleanup();
             return;
           }
-          let pathData = `M ${this.pathPoints[0].x} ${this.pathPoints[0].y}`;
-          for (let i = 1; i < this.pathPoints.length; i++) {
-            pathData += ` L ${this.pathPoints[i].x} ${this.pathPoints[i].y}`;
+          // Store points relative to path's origin (top-left of bounding box)
+          const minX = Math.min(...this.pathPoints.map(p => p.x));
+          const minY = Math.min(...this.pathPoints.map(p => p.y));
+          const relativePoints = this.pathPoints.map(p => ({ x: p.x - minX, y: p.y - minY }));
+          
+          let pathData = `M ${relativePoints[0].x} ${relativePoints[0].y}`;
+          for (let i = 1; i < relativePoints.length; i++) {
+            pathData += ` L ${relativePoints[i].x} ${relativePoints[i].y}`;
           }
           if (this.previewLine) {
             canvas.remove(this.previewLine);
             this.previewLine = null;
           }
           const finalPath = new fabric.Path(pathData, {
+            left: minX,
+            top: minY,
             fill: 'transparent', stroke: '#000000', strokeWidth: 3,
             strokeLineCap: 'round', strokeLineJoin: 'round',
             objectCaching: false, selectable: true, evented: true,
             cornerStrokeColor: "#b3b3b3", cornerStyle: "circle", cornerSize: 10,
             transparentCorners: false, borderColor: "#5956E9", borderScaleFactor: 1,
             objectId: 'pen_path_' + Date.now(), type: 'pen-path',
-            customType: 'editablePath', pathPoints: [...this.pathPoints]
+            customType: 'editablePath', pathPoints: relativePoints
           });
           this.cleanup();
           canvas.add(finalPath);
@@ -894,9 +950,166 @@
       // Initialize pen tool
       penTool = new PenTool();
 
+      // --- Shape Editor (for editing pen-created shapes) ---
+
+      class ShapeEditor {
+        constructor() {
+          this.isActive = false;
+          this.editingObject = null;
+          this.controlPoints = [];
+          this.isDraggingPoint = false;
+          this.draggedPointIndex = -1;
+        }
+
+        activate(obj) {
+          if (!obj || (obj.type !== 'pen-shape' && obj.type !== 'pen-path')) return;
+          if (obj.customType !== 'editableShape' && obj.customType !== 'editablePath') return;
+          
+          this.isActive = true;
+          this.editingObject = obj;
+          this.showControlPoints();
+        }
+
+        deactivate() {
+          this.hideControlPoints();
+          this.isActive = false;
+          this.editingObject = null;
+          this.isDraggingPoint = false;
+          this.draggedPointIndex = -1;
+        }
+
+        showControlPoints() {
+          if (!this.editingObject) return;
+          
+          this.hideControlPoints(); // Clear any existing points
+          
+          const points = this.editingObject.shapePoints || this.editingObject.pathPoints || [];
+          if (points.length === 0) return;
+
+          // Points are stored relative to object's origin (left, top)
+          const obj = this.editingObject;
+          
+          points.forEach((point, index) => {
+            // Convert relative point to canvas coordinates
+            const canvasX = obj.left + point.x;
+            const canvasY = obj.top + point.y;
+            
+            const circle = new fabric.Circle({
+              left: canvasX,
+              top: canvasY,
+              radius: 8,
+              fill: '#5956E9',
+              stroke: '#fff',
+              strokeWidth: 2,
+              originX: 'center',
+              originY: 'center',
+              selectable: false,
+              evented: true,
+              objectId: `edit_point_${index}`,
+              hasControls: false,
+              hasBorders: false,
+              pointIndex: index
+            });
+            
+            canvas.add(circle);
+            canvas.bringToFront(circle);
+            this.controlPoints.push(circle);
+          });
+          
+          canvas.renderAll();
+        }
+
+        hideControlPoints() {
+          this.controlPoints.forEach(circle => {
+            try { canvas.remove(circle); } catch (e) {}
+          });
+          this.controlPoints = [];
+          canvas.renderAll();
+        }
+
+        handleMouseDown(event) {
+          if (!this.isActive || !this.editingObject) return;
+          
+          const pointer = canvas.getPointer(event.e);
+          
+          // Check if clicking on a control point
+          for (let i = 0; i < this.controlPoints.length; i++) {
+            const circle = this.controlPoints[i];
+            const circleCenter = circle.getCenterPoint();
+            const distance = Math.sqrt(
+              Math.pow(pointer.x - circleCenter.x, 2) + Math.pow(pointer.y - circleCenter.y, 2)
+            );
+            
+            if (distance < 15) {
+              this.isDraggingPoint = true;
+              this.draggedPointIndex = i;
+              canvas.setActiveObject(this.editingObject);
+              return true;
+            }
+          }
+          
+          return false;
+        }
+
+        handleMouseMove(event) {
+          if (!this.isActive || !this.editingObject || !this.isDraggingPoint) return;
+          
+          const pointer = canvas.getPointer(event.e);
+          const obj = this.editingObject;
+          
+          // Convert canvas coordinates to relative coordinates (relative to object's left/top)
+          const relativeX = pointer.x - obj.left;
+          const relativeY = pointer.y - obj.top;
+          
+          // Update the point in the stored points array
+          const points = obj.shapePoints || obj.pathPoints;
+          if (points && points[this.draggedPointIndex]) {
+            points[this.draggedPointIndex] = { x: relativeX, y: relativeY };
+            
+            // Rebuild path data
+            let pathData = `M ${points[0].x} ${points[0].y}`;
+            for (let i = 1; i < points.length; i++) {
+              pathData += ` L ${points[i].x} ${points[i].y}`;
+            }
+            if (obj.isClosed || (obj.type === 'pen-shape' && obj.isClosed)) {
+              pathData += ' Z';
+            }
+            
+            // Update the path
+            obj.set({ path: pathData });
+            obj.setCoords();
+            
+            // Update control point position
+            const circle = this.controlPoints[this.draggedPointIndex];
+            circle.set({ left: pointer.x, top: pointer.y });
+            circle.setCoords();
+            
+            canvas.renderAll();
+          }
+        }
+
+        handleMouseUp(event) {
+          if (this.isDraggingPoint) {
+            this.isDraggingPoint = false;
+            this.draggedPointIndex = -1;
+            saveHistory();
+            sendToRN({ type: 'OBJECT_MODIFIED', payload: getObjectInfo(this.editingObject) });
+          }
+        }
+
+        updateControlPoints() {
+          if (this.isActive && this.editingObject) {
+            this.showControlPoints();
+          }
+        }
+      }
+
+      // Initialize shape editor
+      const shapeEditor = new ShapeEditor();
+
       // --- Snapping guides ---
 
-      function clearGuides() {
+      function clearGuides() {  
         if (!canvas) return;
         const toRemove = canvas.getObjects().filter(o => o.isGuideLine);
         toRemove.forEach(o => canvas.remove(o));
@@ -1152,7 +1365,17 @@
       function handleSelection(e) {
         const sel = e.selected[0];
         if (sel && sel.objectId !== 'background_layer') {
+          // Automatically activate shape editor for pen-created shapes/paths
+          if (!penToolActive && sel && 
+              (sel.type === 'pen-shape' || sel.type === 'pen-path') &&
+              (sel.customType === 'editableShape' || sel.customType === 'editablePath')) {
+            shapeEditor.activate(sel);
+          } else {
+            shapeEditor.deactivate();
+          }
           sendToRN({ type: 'SELECTION_CHANGED', payload: getObjectInfo(sel) });
+        } else {
+          shapeEditor.deactivate();
         }
       }
 
