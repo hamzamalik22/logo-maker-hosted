@@ -197,7 +197,36 @@
       function setupEventListeners() {
         canvas.on('selection:created', handleSelection);
         canvas.on('selection:updated', handleSelection);
-        canvas.on('selection:cleared', () => {
+        canvas.on('selection:cleared', (e) => {
+          // Don't deactivate shape editor if we're actively dragging a point
+          if (shapeEditor.isActive && shapeEditor.isDraggingPoint) {
+            // Keep the object selected and editor active
+            if (shapeEditor.editingObject) {
+              canvas.setActiveObject(shapeEditor.editingObject);
+            }
+            return;
+          }
+          // Also check if click was on a control point
+          if (shapeEditor.isActive && e.e) {
+            const pointer = canvas.getPointer(e.e);
+            let clickedOnControlPoint = false;
+            for (let i = 0; i < shapeEditor.controlPoints.length; i++) {
+              const circle = shapeEditor.controlPoints[i];
+              const circleCenter = circle.getCenterPoint();
+              const distance = Math.sqrt(
+                Math.pow(pointer.x - circleCenter.x, 2) + Math.pow(pointer.y - circleCenter.y, 2)
+              );
+              if (distance < 30) {
+                clickedOnControlPoint = true;
+                break;
+              }
+            }
+            if (clickedOnControlPoint && shapeEditor.editingObject) {
+              // Keep the object selected and editor active
+              canvas.setActiveObject(shapeEditor.editingObject);
+              return;
+            }
+          }
           shapeEditor.deactivate();
           sendToRN({ type: 'SELECTION_CLEARED' });
         });
@@ -1062,7 +1091,7 @@
         }
 
         handleMouseDown(event) {
-          if (!this.isActive || !this.editingObject) return false;
+          if (!this.isActive || !this.editingObject || !event.e) return false;
           
           const pointer = canvas.getPointer(event.e);
           
@@ -1074,15 +1103,16 @@
               Math.pow(pointer.x - circleCenter.x, 2) + Math.pow(pointer.y - circleCenter.y, 2)
             );
             
-            if (distance < 20) {
+            if (distance < 25) {
               this.isDraggingPoint = true;
               this.draggedPointIndex = i;
+              // Keep the object selected to prevent deselection
               canvas.setActiveObject(this.editingObject);
               canvas.renderAll();
-              if (event.e) {
-                event.e.preventDefault();
-                event.e.stopPropagation();
-              }
+              // Prevent default to stop canvas from deselecting
+              event.e.preventDefault();
+              event.e.stopPropagation();
+              event.e.stopImmediatePropagation();
               return true;
             }
           }
