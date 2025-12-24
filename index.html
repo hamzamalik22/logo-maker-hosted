@@ -4,6 +4,9 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>Ghetch Logo Maker</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Roboto:wght@300;400;500;700&family=Open+Sans:wght@300;400;500;600;700&family=Lato:wght@300;400;700&family=Montserrat:wght@300;400;500;600;700&family=Poppins:wght@300;400;500;600;700&family=Work+Sans:wght@300;400;500;600;700&family=Source+Sans+Pro:wght@300;400;600;700&display=swap" rel="stylesheet">
   <style>
     * {
       margin: 0;
@@ -484,7 +487,7 @@
           fontFamily: options.fontFamily || 'Arial',
           fontWeight: options.fontWeight || 'normal',
           fill: options.fill || '#000000',
-          textAlign: 'center',
+          textAlign: options.textAlign || 'center',
           objectId: 'text_' + Date.now(),
           cornerColor: '#5956E9', cornerStrokeColor: '#5956E9', borderColor: '#5956E9',
           cornerSize: 10, cornerStyle: 'circle', transparentCorners: false,
