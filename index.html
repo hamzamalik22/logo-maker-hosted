@@ -281,17 +281,44 @@
       function addShape(type, options = {}) {
         let shape;
         const cx = canvasWidth / 2, cy = canvasHeight / 2;
-        const defaults = { left: cx, top: cy, originX: 'center', originY: 'center', ...options };
+        // Merge options properly - options passed from RN take precedence
+        const defaults = { 
+          left: cx, 
+          top: cy, 
+          originX: 'center', 
+          originY: 'center',
+          ...options 
+        };
 
         switch (type) {
           case 'rectangle':
-            shape = new fabric.Rect({ ...defaults, width: 80, height: 80, fill: options.fill || '#3b82f6' });
+            shape = new fabric.Rect({ 
+              ...defaults, 
+              width: 80, 
+              height: 80, 
+              fill: options.fill !== undefined ? options.fill : '#3b82f6',
+              stroke: options.stroke || defaults.stroke,
+              strokeWidth: options.strokeWidth !== undefined ? options.strokeWidth : (defaults.strokeWidth || 0)
+            });
             break;
           case 'circle':
-            shape = new fabric.Circle({ ...defaults, radius: 40, fill: options.fill || '#10b981' });
+            shape = new fabric.Circle({ 
+              ...defaults, 
+              radius: 40, 
+              fill: options.fill !== undefined ? options.fill : '#10b981',
+              stroke: options.stroke || defaults.stroke,
+              strokeWidth: options.strokeWidth !== undefined ? options.strokeWidth : (defaults.strokeWidth || 0)
+            });
             break;
           case 'triangle':
-            shape = new fabric.Triangle({ ...defaults, width: 80, height: 80, fill: options.fill || '#f59e0b' });
+            shape = new fabric.Triangle({ 
+              ...defaults, 
+              width: 80, 
+              height: 80, 
+              fill: options.fill !== undefined ? options.fill : '#f59e0b',
+              stroke: options.stroke || defaults.stroke,
+              strokeWidth: options.strokeWidth !== undefined ? options.strokeWidth : (defaults.strokeWidth || 0)
+            });
             break;
           case 'line':
             shape = new fabric.Line([cx - 40, cy, cx + 40, cy], { stroke: options.stroke || '#000', strokeWidth: 3 });
@@ -303,7 +330,12 @@
               const a = (Math.PI / 5) * i - Math.PI / 2;
               pts.push({ x: r * Math.cos(a), y: r * Math.sin(a) });
             }
-            shape = new fabric.Polygon(pts, { ...defaults, fill: options.fill || '#8b5cf6' });
+            shape = new fabric.Polygon(pts, { 
+              ...defaults, 
+              fill: options.fill !== undefined ? options.fill : '#8b5cf6',
+              stroke: options.stroke || defaults.stroke,
+              strokeWidth: options.strokeWidth !== undefined ? options.strokeWidth : (defaults.strokeWidth || 0)
+            });
             break;
           case 'polygon':
             const sides = options.sides || 5, polyPts = [];
@@ -311,7 +343,120 @@
               const a = (2 * Math.PI / sides) * i - Math.PI / 2;
               polyPts.push({ x: 40 * Math.cos(a), y: 40 * Math.sin(a) });
             }
-            shape = new fabric.Polygon(polyPts, { ...defaults, fill: options.fill || '#ec4899' });
+            shape = new fabric.Polygon(polyPts, { 
+              ...defaults, 
+              fill: options.fill !== undefined ? options.fill : '#ec4899',
+              stroke: options.stroke || defaults.stroke,
+              strokeWidth: options.strokeWidth !== undefined ? options.strokeWidth : (defaults.strokeWidth || 0)
+            });
+            break;
+          case 'diamond':
+            shape = new fabric.Polygon([
+              { x: 0, y: 40 },
+              { x: 40, y: 0 },
+              { x: 80, y: 40 },
+              { x: 40, y: 80 }
+            ], { 
+              ...defaults, 
+              fill: options.fill !== undefined ? options.fill : '#06b6d4',
+              stroke: options.stroke || defaults.stroke,
+              strokeWidth: options.strokeWidth !== undefined ? options.strokeWidth : (defaults.strokeWidth || 0)
+            });
+            break;
+          case 'oval':
+            shape = new fabric.Ellipse({ 
+              ...defaults, 
+              rx: 50, 
+              ry: 30, 
+              fill: options.fill !== undefined ? options.fill : '#10b981',
+              stroke: options.stroke || defaults.stroke,
+              strokeWidth: options.strokeWidth !== undefined ? options.strokeWidth : (defaults.strokeWidth || 0)
+            });
+            break;
+          case 'heart':
+            const heartPath = 'M50,85 C50,85 10,50 10,30 C10,15 20,10 30,10 C40,10 50,20 50,30 C50,20 60,10 70,10 C80,10 90,15 90,30 C90,50 50,85 50,85 Z';
+            shape = new fabric.Path(heartPath, { 
+              ...defaults, 
+              fill: options.fill !== undefined ? options.fill : '#ef4444',
+              stroke: options.stroke || defaults.stroke,
+              strokeWidth: options.strokeWidth !== undefined ? options.strokeWidth : (defaults.strokeWidth || 0)
+            });
+            break;
+          case 'arrow-right':
+            const arrowPath = 'M10,50 L70,50 L70,30 L90,50 L70,70 L70,50 Z';
+            shape = new fabric.Path(arrowPath, { 
+              ...defaults, 
+              fill: options.fill !== undefined ? options.fill : '#3b82f6',
+              stroke: options.stroke || defaults.stroke,
+              strokeWidth: options.strokeWidth !== undefined ? options.strokeWidth : (defaults.strokeWidth || 0)
+            });
+            break;
+          case 'arrow-left':
+            const arrowLeftPath = 'M90,50 L30,50 L30,30 L10,50 L30,70 L30,50 Z';
+            shape = new fabric.Path(arrowLeftPath, { 
+              ...defaults, 
+              fill: options.fill !== undefined ? options.fill : '#3b82f6',
+              stroke: options.stroke || defaults.stroke,
+              strokeWidth: options.strokeWidth !== undefined ? options.strokeWidth : (defaults.strokeWidth || 0)
+            });
+            break;
+          case 'arrow-up':
+            const arrowUpPath = 'M50,10 L50,70 L30,70 L50,90 L70,70 L50,70 Z';
+            shape = new fabric.Path(arrowUpPath, { 
+              ...defaults, 
+              fill: options.fill !== undefined ? options.fill : '#3b82f6',
+              stroke: options.stroke || defaults.stroke,
+              strokeWidth: options.strokeWidth !== undefined ? options.strokeWidth : (defaults.strokeWidth || 0)
+            });
+            break;
+          case 'arrow-down':
+            const arrowDownPath = 'M50,90 L50,30 L30,30 L50,10 L70,30 L50,30 Z';
+            shape = new fabric.Path(arrowDownPath, { 
+              ...defaults, 
+              fill: options.fill !== undefined ? options.fill : '#3b82f6',
+              stroke: options.stroke || defaults.stroke,
+              strokeWidth: options.strokeWidth !== undefined ? options.strokeWidth : (defaults.strokeWidth || 0)
+            });
+            break;
+          case 'star-4':
+            const star4Pts = [];
+            for (let i = 0; i < 8; i++) {
+              const r = i % 2 === 0 ? 40 : 20;
+              const a = (Math.PI / 4) * i - Math.PI / 2;
+              star4Pts.push({ x: r * Math.cos(a), y: r * Math.sin(a) });
+            }
+            shape = new fabric.Polygon(star4Pts, { 
+              ...defaults, 
+              fill: options.fill !== undefined ? options.fill : '#fbbf24',
+              stroke: options.stroke || defaults.stroke,
+              strokeWidth: options.strokeWidth !== undefined ? options.strokeWidth : (defaults.strokeWidth || 0)
+            });
+            break;
+          case 'star-6':
+            const star6Pts = [];
+            for (let i = 0; i < 12; i++) {
+              const r = i % 2 === 0 ? 40 : 20;
+              const a = (Math.PI / 6) * i - Math.PI / 2;
+              star6Pts.push({ x: r * Math.cos(a), y: r * Math.sin(a) });
+            }
+            shape = new fabric.Polygon(star6Pts, { 
+              ...defaults, 
+              fill: options.fill !== undefined ? options.fill : '#fbbf24',
+              stroke: options.stroke || defaults.stroke,
+              strokeWidth: options.strokeWidth !== undefined ? options.strokeWidth : (defaults.strokeWidth || 0)
+            });
+            break;
+          case 'rounded-rect':
+            shape = new fabric.Rect({ 
+              ...defaults, 
+              width: 80, 
+              height: 80, 
+              rx: 15, 
+              ry: 15, 
+              fill: options.fill !== undefined ? options.fill : '#60a5fa',
+              stroke: options.stroke || defaults.stroke,
+              strokeWidth: options.strokeWidth !== undefined ? options.strokeWidth : (defaults.strokeWidth || 0)
+            });
             break;
           default: return;
         }
