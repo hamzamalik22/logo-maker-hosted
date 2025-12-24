@@ -934,7 +934,9 @@
             borderColor: "#5956E9",
             borderScaleFactor: 1,
           });
-          canvas.setActiveObject(path);
+          // Don't auto-select during drawing - let user manually select if they want to adjust position
+          // This prevents the position panel from showing automatically
+          canvas.discardActiveObject();
           canvas.renderAll();
           saveHistory();
           sendToRN({ type: 'OBJECT_ADDED', payload: getObjectInfo(path) });
