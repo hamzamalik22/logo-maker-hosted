@@ -1102,39 +1102,48 @@
           
           if (!event.e) return;
           
-          const pointer = canvas.getPointer(event.e);
-          const obj = this.editingObject;
-          
-          // Convert canvas coordinates to relative coordinates (relative to object's left/top)
-          const relativeX = pointer.x - obj.left;
-          const relativeY = pointer.y - obj.top;
-          
-          // Update the point in the stored points array
-          const points = obj.shapePoints || obj.pathPoints;
-          if (points && points[this.draggedPointIndex]) {
-            points[this.draggedPointIndex] = { x: relativeX, y: relativeY };
+          try {
+            const pointer = canvas.getPointer(event.e);
+            const obj = this.editingObject;
             
-            // Rebuild path data
-            let pathData = `M ${points[0].x} ${points[0].y}`;
-            for (let i = 1; i < points.length; i++) {
-              pathData += ` L ${points[i].x} ${points[i].y}`;
-            }
-            if (obj.isClosed || (obj.type === 'pen-shape' && obj.isClosed)) {
-              pathData += ' Z';
+            // Convert canvas coordinates to relative coordinates (relative to object's left/top)
+            const relativeX = pointer.x - obj.left;
+            const relativeY = pointer.y - obj.top;
+            
+            // Update the point in the stored points array
+            const points = obj.shapePoints || obj.pathPoints;
+            if (!points || !Array.isArray(points)) {
+              console.error('Points array is invalid:', points);
+              return;
             }
             
-            // Update the path
-            obj.set({ path: pathData });
-            obj.setCoords();
-            
-            // Update control point position
-            const circle = this.controlPoints[this.draggedPointIndex];
-            if (circle) {
-              circle.set({ left: pointer.x, top: pointer.y });
-              circle.setCoords();
+            if (points[this.draggedPointIndex] !== undefined) {
+              points[this.draggedPointIndex] = { x: relativeX, y: relativeY };
+              
+              // Rebuild path data
+              let pathData = `M ${points[0].x} ${points[0].y}`;
+              for (let i = 1; i < points.length; i++) {
+                pathData += ` L ${points[i].x} ${points[i].y}`;
+              }
+              if (obj.isClosed || (obj.type === 'pen-shape' && obj.isClosed)) {
+                pathData += ' Z';
+              }
+              
+              // Update the path
+              obj.set({ path: pathData });
+              obj.setCoords();
+              
+              // Update control point position
+              const circle = this.controlPoints[this.draggedPointIndex];
+              if (circle) {
+                circle.set({ left: pointer.x, top: pointer.y });
+                circle.setCoords();
+              }
+              
+              canvas.renderAll();
             }
-            
-            canvas.renderAll();
+          } catch (error) {
+            console.error('Error in handleMouseMove:', error);
           }
         }
 
@@ -1449,25 +1458,53 @@
       }
 
       function getObjectInfo(obj) {
-        // Access custom properties - try both direct access and get() method
-        const customType = obj.customType || obj.get?.('customType') || null;
-        const shapePoints = obj.shapePoints || obj.get?.('shapePoints') || null;
-        const pathPoints = obj.pathPoints || obj.get?.('pathPoints') || null;
-        
-        return {
-          objectId: obj.objectId, type: obj.type,
-          customType: customType,
-          shapePoints: shapePoints,
-          pathPoints: pathPoints,
-          left: Math.round(obj.left), top: Math.round(obj.top),
-          width: Math.round(obj.width * (obj.scaleX || 1)),
-          height: Math.round(obj.height * (obj.scaleY || 1)),
-          scaleX: obj.scaleX || 1,
-          scaleY: obj.scaleY || 1,
-          angle: Math.round(obj.angle || 0),
-          fill: obj.fill, stroke: obj.stroke, strokeWidth: obj.strokeWidth, opacity: obj.opacity,
-          text: obj.text, fontSize: obj.fontSize, fontFamily: obj.fontFamily, fontWeight: obj.fontWeight,
-        };
+        try {
+          // Access custom properties - try both direct access and get() method
+          const customType = obj.customType || obj.get?.('customType') || null;
+          
+          // Ensure we get the array, not the length
+          let shapePoints = null;
+          if (obj.shapePoints && Array.isArray(obj.shapePoints)) {
+            shapePoints = obj.shapePoints;
+          } else {
+            const sp = obj.get?.('shapePoints');
+            if (sp && Array.isArray(sp)) {
+              shapePoints = sp;
+            }
+          }
+          
+          let pathPoints = null;
+          if (obj.pathPoints && Array.isArray(obj.pathPoints)) {
+            pathPoints = obj.pathPoints;
+          } else {
+            const pp = obj.get?.('pathPoints');
+            if (pp && Array.isArray(pp)) {
+              pathPoints = pp;
+            }
+          }
+          
+          return {
+            objectId: obj.objectId, type: obj.type,
+            customType: customType,
+            shapePoints: shapePoints,
+            pathPoints: pathPoints,
+            left: Math.round(obj.left), top: Math.round(obj.top),
+            width: Math.round(obj.width * (obj.scaleX || 1)),
+            height: Math.round(obj.height * (obj.scaleY || 1)),
+            scaleX: obj.scaleX || 1,
+            scaleY: obj.scaleY || 1,
+            angle: Math.round(obj.angle || 0),
+            fill: obj.fill, stroke: obj.stroke, strokeWidth: obj.strokeWidth, opacity: obj.opacity,
+            text: obj.text, fontSize: obj.fontSize, fontFamily: obj.fontFamily, fontWeight: obj.fontWeight,
+          };
+        } catch (error) {
+          console.error('Error in getObjectInfo:', error);
+          return {
+            objectId: obj.objectId || 'unknown',
+            type: obj.type || 'unknown',
+            error: error.message
+          };
+        }
       }
 
       function sendToRN(msg) {
