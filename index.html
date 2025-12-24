@@ -243,7 +243,8 @@
           if (penToolActive && penTool) {
             penTool.handleMouseDown(e);
           } else if (shapeEditor.isActive) {
-            if (shapeEditor.handleMouseDown(e)) {
+            const handled = shapeEditor.handleMouseDown(e);
+            if (handled && e.e) {
               e.e.preventDefault();
               e.e.stopPropagation();
             }
@@ -982,6 +983,10 @@
           
           this.isActive = true;
           this.editingObject = obj;
+          // Disable object selection while editing points to prevent interference
+          obj.selectable = false;
+          obj.evented = false;
+          canvas.selection = false;
           this.showControlPoints();
           return true;
         }
@@ -994,6 +999,12 @@
 
         deactivate() {
           this.hideControlPoints();
+          // Re-enable object selection
+          if (this.editingObject) {
+            this.editingObject.selectable = true;
+            this.editingObject.evented = true;
+          }
+          canvas.selection = true;
           this.isActive = false;
           this.editingObject = null;
           this.isDraggingPoint = false;
@@ -1019,7 +1030,7 @@
             const circle = new fabric.Circle({
               left: canvasX,
               top: canvasY,
-              radius: 8,
+              radius: 10,
               fill: '#5956E9',
               stroke: '#fff',
               strokeWidth: 2,
@@ -1030,7 +1041,8 @@
               objectId: `edit_point_${index}`,
               hasControls: false,
               hasBorders: false,
-              pointIndex: index
+              pointIndex: index,
+              excludeFromExport: true
             });
             
             canvas.add(circle);
@@ -1050,7 +1062,7 @@
         }
 
         handleMouseDown(event) {
-          if (!this.isActive || !this.editingObject) return;
+          if (!this.isActive || !this.editingObject) return false;
           
           const pointer = canvas.getPointer(event.e);
           
@@ -1062,10 +1074,15 @@
               Math.pow(pointer.x - circleCenter.x, 2) + Math.pow(pointer.y - circleCenter.y, 2)
             );
             
-            if (distance < 15) {
+            if (distance < 20) {
               this.isDraggingPoint = true;
               this.draggedPointIndex = i;
               canvas.setActiveObject(this.editingObject);
+              canvas.renderAll();
+              if (event.e) {
+                event.e.preventDefault();
+                event.e.stopPropagation();
+              }
               return true;
             }
           }
@@ -1075,6 +1092,8 @@
 
         handleMouseMove(event) {
           if (!this.isActive || !this.editingObject || !this.isDraggingPoint) return;
+          
+          if (!event.e) return;
           
           const pointer = canvas.getPointer(event.e);
           const obj = this.editingObject;
@@ -1103,8 +1122,10 @@
             
             // Update control point position
             const circle = this.controlPoints[this.draggedPointIndex];
-            circle.set({ left: pointer.x, top: pointer.y });
-            circle.setCoords();
+            if (circle) {
+              circle.set({ left: pointer.x, top: pointer.y });
+              circle.setCoords();
+            }
             
             canvas.renderAll();
           }
