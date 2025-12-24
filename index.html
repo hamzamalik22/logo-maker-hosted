@@ -927,12 +927,15 @@
           const path = e.path;
           path.set({
             objectId: 'draw_path_' + Date.now(),
-            cornerStrokeColor: "#b3b3b3",
-            cornerStyle: "circle",
-            cornerSize: 10,
-            transparentCorners: false,
-            borderColor: "#5956E9",
-            borderScaleFactor: 1,
+            // COMMENTED OUT: Making drawing paths non-selectable and non-movable
+            // cornerStrokeColor: "#b3b3b3",
+            // cornerStyle: "circle",
+            // cornerSize: 10,
+            // transparentCorners: false,
+            // borderColor: "#5956E9",
+            // borderScaleFactor: 1,
+            selectable: false,  // Cannot be selected
+            evented: false,     // Cannot be moved or interacted with
           });
           // Don't auto-select during drawing - let user manually select if they want to adjust position
           // This prevents the position panel from showing automatically
