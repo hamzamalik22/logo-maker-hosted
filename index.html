@@ -248,6 +248,36 @@
         canvas.renderAll();
       }
 
+      function clearCanvas() {
+        if (!canvas) return;
+        
+        // Deactivate pen tool if active
+        if (penTool && penTool.isActive) {
+          penTool.deactivate();
+        }
+        
+        // Deactivate draw tool if active
+        if (drawToolActive) {
+          deactivateDrawTool();
+        }
+        
+        // Remove all objects except background
+        const objects = canvas.getObjects().filter(obj => obj.objectId !== 'background_layer');
+        objects.forEach(obj => canvas.remove(obj));
+        
+        // Clear selection
+        canvas.discardActiveObject();
+        
+        // Reset history
+        history = [];
+        historyIndex = -1;
+        
+        canvas.renderAll();
+        saveHistory();
+        sendToRN({ type: 'SELECTION_CLEARED' });
+        sendToRN({ type: 'HISTORY_STATE', payload: { canUndo: false, canRedo: false } });
+      }
+
       function addShape(type, options = {}) {
         let shape;
         const cx = canvasWidth / 2, cy = canvasHeight / 2;
@@ -1333,7 +1363,8 @@
           case 'SET_BACKGROUND': createBackground(payload.color); saveHistory(); break;
           case 'UNDO': undo(); break;
           case 'REDO': redo(); break;
-          case 'EXPORT': exportCanvas(payload.format, payload.quality, payload.multiplier); break;
+            case 'EXPORT': exportCanvas(payload.format, payload.quality, payload.multiplier); break;
+            case 'CLEAR_CANVAS': clearCanvas(); break;
           case 'GET_LAYERS': getLayers(); break;
           case 'SET_LAYER_VISIBILITY': setLayerVisibility(payload.objectId, payload.visible); break;
           case 'SET_LAYER_LOCK': setLayerLock(payload.objectId, payload.locked); break;
