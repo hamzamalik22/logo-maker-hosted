@@ -1022,8 +1022,21 @@
           
           this.hideControlPoints(); // Clear any existing points
           
-          const points = this.editingObject.shapePoints || this.editingObject.pathPoints || [];
-          if (points.length === 0) return;
+          // Get points using get() method for reliability
+          let points = null;
+          try {
+            points = this.editingObject.get?.('shapePoints') || this.editingObject.get?.('pathPoints');
+            if (!points || !Array.isArray(points)) {
+              points = this.editingObject.shapePoints || this.editingObject.pathPoints;
+            }
+          } catch (e) {
+            points = this.editingObject.shapePoints || this.editingObject.pathPoints;
+          }
+          
+          if (!points || !Array.isArray(points) || points.length === 0) {
+            console.error('No valid points array found:', points);
+            return;
+          }
 
           // Points are stored relative to object's origin (left, top)
           const obj = this.editingObject;
@@ -1111,14 +1124,33 @@
             const relativeY = pointer.y - obj.top;
             
             // Update the point in the stored points array
-            const points = obj.shapePoints || obj.pathPoints;
+            // Use get() method for reliable access
+            let points = null;
+            try {
+              points = obj.get?.('shapePoints') || obj.get?.('pathPoints');
+              if (!points || !Array.isArray(points)) {
+                points = obj.shapePoints || obj.pathPoints;
+              }
+            } catch (e) {
+              points = obj.shapePoints || obj.pathPoints;
+            }
+            
             if (!points || !Array.isArray(points)) {
               console.error('Points array is invalid:', points);
               return;
             }
             
             if (points[this.draggedPointIndex] !== undefined) {
+              // Update the point in the array
               points[this.draggedPointIndex] = { x: relativeX, y: relativeY };
+              
+              // Update the stored array on the object using set() to ensure it's saved
+              const isShape = obj.get?.('shapePoints') || obj.shapePoints;
+              if (isShape) {
+                obj.set('shapePoints', points);
+              } else {
+                obj.set('pathPoints', points);
+              }
               
               // Rebuild path data
               let pathData = `M ${points[0].x} ${points[0].y}`;
@@ -1463,24 +1495,35 @@
           const customType = obj.customType || obj.get?.('customType') || null;
           
           // Ensure we get the array, not the length
+          // Use get() method first as it's more reliable for custom properties
           let shapePoints = null;
-          if (obj.shapePoints && Array.isArray(obj.shapePoints)) {
-            shapePoints = obj.shapePoints;
-          } else {
+          try {
             const sp = obj.get?.('shapePoints');
             if (sp && Array.isArray(sp)) {
               shapePoints = sp;
+            } else if (obj.shapePoints && Array.isArray(obj.shapePoints)) {
+              shapePoints = obj.shapePoints;
+            } else if (obj.shapePoints && typeof obj.shapePoints === 'object' && obj.shapePoints.length !== undefined) {
+              // Handle case where it might be array-like
+              shapePoints = Array.from(obj.shapePoints);
             }
+          } catch (e) {
+            console.error('Error accessing shapePoints:', e);
           }
           
           let pathPoints = null;
-          if (obj.pathPoints && Array.isArray(obj.pathPoints)) {
-            pathPoints = obj.pathPoints;
-          } else {
+          try {
             const pp = obj.get?.('pathPoints');
             if (pp && Array.isArray(pp)) {
               pathPoints = pp;
+            } else if (obj.pathPoints && Array.isArray(obj.pathPoints)) {
+              pathPoints = obj.pathPoints;
+            } else if (obj.pathPoints && typeof obj.pathPoints === 'object' && obj.pathPoints.length !== undefined) {
+              // Handle case where it might be array-like
+              pathPoints = Array.from(obj.pathPoints);
             }
+          } catch (e) {
+            console.error('Error accessing pathPoints:', e);
           }
           
           return {
