@@ -1299,8 +1299,17 @@
       }
 
       window.handleRNMessage = function(message) {
+        let type, payload;
         try {
-          const { type, payload } = typeof message === 'string' ? JSON.parse(message) : message;
+          const parsed = typeof message === 'string' ? JSON.parse(message) : message;
+          type = parsed.type;
+          payload = parsed.payload;
+          
+          if (!type) {
+            console.warn('Message missing type:', parsed);
+            return;
+          }
+          
           switch (type) {
             case 'ADD_SHAPE': addShape(payload.shape, payload.options); break;
             case 'ADD_TEXT': addText(payload.text, payload.options); break;
@@ -1374,7 +1383,7 @@
           default: console.warn('Unknown message type:', type);
         }
         } catch(e) {
-          console.error('Error handling message:', type, e);
+          console.error('Error handling message:', type || 'unknown', message, e);
         }
       };
 
