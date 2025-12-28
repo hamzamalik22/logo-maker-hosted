@@ -228,6 +228,7 @@
       let cropRect = null;
       let cropImage = null;
       let cropOverlay = null;
+      let cropUpdateTimeout = null;
 
       function initCanvas() {
         try {
@@ -790,23 +791,20 @@
         canvas.setActiveObject(cropRect);
         canvas.renderAll();
         
-        // Constrain crop rect to image bounds
+        // Constrain crop rect to image bounds with debounced updates
         cropRect.on('modified', () => {
           constrainCropToImage();
-          updateCropGrid();
-          updateCropOverlay();
+          debouncedCropUpdate();
         });
         
         cropRect.on('moving', () => {
           constrainCropToImage();
-          updateCropGrid();
-          updateCropOverlay();
+          debouncedCropUpdate();
         });
         
         cropRect.on('scaling', () => {
           constrainCropToImage();
-          updateCropGrid();
-          updateCropOverlay();
+          debouncedCropUpdate();
         });
       }
       
@@ -882,6 +880,16 @@
         });
         
         canvas.renderAll();
+      }
+      
+      function debouncedCropUpdate() {
+        if (cropUpdateTimeout) {
+          clearTimeout(cropUpdateTimeout);
+        }
+        cropUpdateTimeout = setTimeout(() => {
+          updateCropGrid();
+          updateCropOverlay();
+        }, 50); // Debounce to reduce glitches
       }
       
       function updateCropOverlay() {
@@ -993,51 +1001,79 @@
       }
       
       function applyCrop() {
-        if (!cropToolActive || !cropRect || !cropImage) return;
+        if (!cropToolActive || !cropRect || !cropImage) {
+          sendToRN({ type: 'CONSOLE_ERROR', payload: { message: 'Crop tool not active or no image selected' } });
+          return;
+        }
+        
+        // Clear any pending updates
+        if (cropUpdateTimeout) {
+          clearTimeout(cropUpdateTimeout);
+          cropUpdateTimeout = null;
+        }
         
         const rectBounds = cropRect.getBoundingRect();
         const imgBounds = cropImage.getBoundingRect();
         
-        // Calculate crop area relative to image
-        const cropLeft = (rectBounds.left - imgBounds.left) / imgBounds.width;
-        const cropTop = (rectBounds.top - imgBounds.top) / imgBounds.height;
-        const cropWidth = rectBounds.width / imgBounds.width;
-        const cropHeight = rectBounds.height / imgBounds.height;
+        // Calculate crop area relative to image bounds
+        const cropLeft = Math.max(0, (rectBounds.left - imgBounds.left) / imgBounds.width);
+        const cropTop = Math.max(0, (rectBounds.top - imgBounds.top) / imgBounds.height);
+        const cropWidth = Math.min(1, rectBounds.width / imgBounds.width);
+        const cropHeight = Math.min(1, rectBounds.height / imgBounds.height);
         
         // Get image element
         const imgElement = cropImage.getElement();
-        if (!imgElement) return;
+        if (!imgElement) {
+          sendToRN({ type: 'CONSOLE_ERROR', payload: { message: 'Could not access image element' } });
+          return;
+        }
+        
+        // Get actual image dimensions (not scaled)
+        const actualWidth = imgElement.naturalWidth || imgElement.width || cropImage.width;
+        const actualHeight = imgElement.naturalHeight || imgElement.height || cropImage.height;
+        
+        // Calculate source crop coordinates in actual image pixels
+        const srcX = cropLeft * actualWidth;
+        const srcY = cropTop * actualHeight;
+        const srcWidth = cropWidth * actualWidth;
+        const srcHeight = cropHeight * actualHeight;
         
         // Create temporary canvas for cropping
         const tempCanvas = document.createElement('canvas');
         const tempCtx = tempCanvas.getContext('2d');
-        const imgWidth = imgElement.width || cropImage.width;
-        const imgHeight = imgElement.height || cropImage.height;
         
-        tempCanvas.width = rectBounds.width;
-        tempCanvas.height = rectBounds.height;
+        // Set canvas size to crop dimensions (in actual pixels)
+        tempCanvas.width = srcWidth;
+        tempCanvas.height = srcHeight;
         
-        // Draw cropped portion
-        tempCtx.drawImage(
-          imgElement,
-          cropLeft * imgWidth,
-          cropTop * imgHeight,
-          cropWidth * imgWidth,
-          cropHeight * imgHeight,
-          0,
-          0,
-          rectBounds.width,
-          rectBounds.height
-        );
+        // Draw cropped portion from source image
+        try {
+          tempCtx.drawImage(
+            imgElement,
+            srcX, srcY, srcWidth, srcHeight,  // Source rectangle
+            0, 0, srcWidth, srcHeight          // Destination rectangle
+          );
+        } catch (e) {
+          sendToRN({ type: 'CONSOLE_ERROR', payload: { message: 'Error drawing image: ' + e.message } });
+          return;
+        }
         
         // Convert to data URL
         const croppedDataUrl = tempCanvas.toDataURL('image/png');
+        
+        if (!croppedDataUrl || croppedDataUrl === 'data:,') {
+          sendToRN({ type: 'CONSOLE_ERROR', payload: { message: 'Failed to create cropped image' } });
+          return;
+        }
         
         // Create new image from cropped data
         fabric.Image.fromURL(
           croppedDataUrl,
           (newImg) => {
-            if (!newImg) return;
+            if (!newImg) {
+              sendToRN({ type: 'CONSOLE_ERROR', payload: { message: 'Failed to load cropped image' } });
+              return;
+            }
             
             // Preserve position and other properties
             const currentLeft = cropImage.left;
@@ -1045,16 +1081,20 @@
             const currentAngle = cropImage.angle || 0;
             const currentOpacity = cropImage.opacity || 1;
             const currentObjectId = cropImage.objectId;
+            const currentOriginX = cropImage.originX || 'left';
+            const currentOriginY = cropImage.originY || 'top';
             
-            // Calculate scale to fit the cropped size
-            const scaleX = rectBounds.width / newImg.width;
-            const scaleY = rectBounds.height / newImg.height;
+            // Calculate scale to maintain the displayed crop size
+            const displayedCropWidth = rectBounds.width;
+            const displayedCropHeight = rectBounds.height;
+            const scaleX = displayedCropWidth / newImg.width;
+            const scaleY = displayedCropHeight / newImg.height;
             
             newImg.set({
               left: currentLeft,
               top: currentTop,
-              originX: cropImage.originX,
-              originY: cropImage.originY,
+              originX: currentOriginX,
+              originY: currentOriginY,
               scaleX: scaleX,
               scaleY: scaleY,
               angle: currentAngle,
@@ -1072,10 +1112,15 @@
               hasBorders: true,
             });
             
-            // Remove old image and crop elements
+            // Remove old image and all crop elements
             canvas.remove(cropImage);
-            canvas.remove(cropRect);
-            const overlays = canvas.getObjects().filter(o => o.objectId && o.objectId.startsWith('crop_overlay_'));
+            if (cropRect) {
+              cropRect.off('modified');
+              cropRect.off('moving');
+              cropRect.off('scaling');
+              canvas.remove(cropRect);
+            }
+            const overlays = canvas.getObjects().filter(o => o.objectId && (o.objectId.startsWith('crop_overlay_') || o.objectId === 'crop_grid'));
             overlays.forEach(ov => canvas.remove(ov));
             if (cropOverlay) canvas.remove(cropOverlay);
             
@@ -1096,6 +1141,30 @@
       function cancelCrop() {
         if (!cropToolActive) return;
         
+        // Clear any pending updates
+        if (cropUpdateTimeout) {
+          clearTimeout(cropUpdateTimeout);
+          cropUpdateTimeout = null;
+        }
+        
+        // Remove all event listeners from crop rect
+        if (cropRect) {
+          cropRect.off('modified');
+          cropRect.off('moving');
+          cropRect.off('scaling');
+          canvas.remove(cropRect);
+          cropRect = null;
+        }
+        
+        // Remove all overlay elements
+        const overlays = canvas.getObjects().filter(o => o.objectId && (o.objectId.startsWith('crop_overlay_') || o.objectId === 'crop_grid'));
+        overlays.forEach(ov => canvas.remove(ov));
+        
+        if (cropOverlay) {
+          canvas.remove(cropOverlay);
+          cropOverlay = null;
+        }
+        
         // Restore image
         if (cropImage) {
           cropImage.set({
@@ -1104,22 +1173,6 @@
             hasControls: true,
             hasBorders: true,
           });
-        }
-        
-        // Remove crop elements
-        if (cropRect) {
-          canvas.remove(cropRect);
-          cropRect = null;
-        }
-        const overlays = canvas.getObjects().filter(o => o.objectId && o.objectId.startsWith('crop_overlay_'));
-        overlays.forEach(ov => canvas.remove(ov));
-        if (cropOverlay) {
-          canvas.remove(cropOverlay);
-          cropOverlay = null;
-        }
-        
-        // Restore selection
-        if (cropImage) {
           canvas.setActiveObject(cropImage);
         }
         
