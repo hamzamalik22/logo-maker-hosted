@@ -43,9 +43,8 @@
       overflow: hidden;
       touch-action: none;
       margin: 0;
-      padding: 0 0;
-      padding-left: 0;
-      padding-right: 0;
+      padding: 20px 0;
+      box-sizing: border-box;
     }
 
     #canvas-wrapper {
@@ -243,21 +242,26 @@
           const wrapper = document.getElementById('canvas-wrapper');
           
           // Use full width (touches horizontal edges) but add vertical padding
-          const maxWidth = container.clientWidth;
-          const maxHeight = container.clientHeight - 40; // 40px total vertical padding (20px top + 20px bottom)
+          const containerWidth = container.clientWidth;
+          const containerHeight = container.clientHeight;
           
-          // Maintain square aspect ratio
-          canvasWidth = maxWidth;
-          canvasHeight = Math.min(canvasWidth, maxHeight);
+          // Reserve vertical space for padding (grey background to show)
+          const verticalPadding = 40; // 20px top + 20px bottom
+          const availableHeight = containerHeight - verticalPadding;
           
-          // If height would be too large, scale down proportionally
-          if (canvasHeight > maxHeight) {
-            canvasHeight = maxHeight;
+          // Maintain square aspect ratio, but don't exceed available height
+          canvasWidth = containerWidth;
+          canvasHeight = Math.min(canvasWidth, availableHeight);
+          
+          // Ensure canvas doesn't fill entire height
+          if (canvasHeight >= containerHeight) {
+            canvasHeight = containerHeight - verticalPadding;
             canvasWidth = canvasHeight; // Keep square
           }
 
           wrapper.style.width = '100%';
           wrapper.style.height = canvasHeight + 'px';
+          wrapper.style.maxHeight = availableHeight + 'px';
 
           canvas = new fabric.Canvas('logo-canvas', {
             width: canvasWidth,
