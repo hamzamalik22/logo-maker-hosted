@@ -837,9 +837,9 @@
             top: imgTop,
             width: imgWidth,
             height: imgHeight,
-            fill: 'transparent',
+            fill: 'rgba(255, 255, 255, 0.1)',
             stroke: '#5956E9',
-            strokeWidth: 3,
+            strokeWidth: 2,
             selectable: true,
             evented: true,
             hasControls: true,
@@ -847,12 +847,14 @@
             cornerColor: '#5956E9',
             cornerStrokeColor: '#ffffff',
             borderColor: '#5956E9',
-            cornerSize: 14,
+            cornerSize: 12,
             cornerStyle: 'circle',
             transparentCorners: false,
             objectId: 'crop_rect',
-            lockScalingFlip: false,
+            lockScalingFlip: true,
             lockRotation: true,
+            scaleX: 1,
+            scaleY: 1,
           });
           
           // Create dark overlay rectangles around the crop area
@@ -891,9 +893,15 @@
         const existingOverlays = canvas.getObjects().filter(o => o.objectId && o.objectId.startsWith('crop_overlay_'));
         existingOverlays.forEach(ov => canvas.remove(ov));
         
-        if (!cropRect) return;
+        if (!cropRect || !cropImage) return;
         
-        const rectBounds = cropRect.getBoundingRect();
+        // Get the actual visible bounds of the crop rect
+        const rectBounds = {
+          left: cropRect.left,
+          top: cropRect.top,
+          width: cropRect.width * cropRect.scaleX,
+          height: cropRect.height * cropRect.scaleY,
+        };
         const overlays = [];
         
         // Top overlay
@@ -983,7 +991,13 @@
         
         if (!cropRect) return;
         
-        const rectBounds = cropRect.getBoundingRect();
+        // Get the actual visible bounds of the crop rect
+        const rectBounds = {
+          left: cropRect.left,
+          top: cropRect.top,
+          width: cropRect.width * cropRect.scaleX,
+          height: cropRect.height * cropRect.scaleY,
+        };
         const lines = [];
         
         // Create rule of thirds grid (3x3) - 2 vertical and 2 horizontal lines
@@ -1043,17 +1057,26 @@
         if (!cropRect || !cropImage) return;
         
         const imgBounds = cropImage.getBoundingRect();
-        const rectBounds = cropRect.getBoundingRect();
         
-        let newLeft = rectBounds.left;
-        let newTop = rectBounds.top;
-        let newWidth = rectBounds.width;
-        let newHeight = rectBounds.height;
+        // Get actual position and dimensions (accounting for scale)
+        const cropLeft = cropRect.left;
+        const cropTop = cropRect.top;
+        const cropWidth = cropRect.width * cropRect.scaleX;
+        const cropHeight = cropRect.height * cropRect.scaleY;
         
         const imgMinX = imgBounds.left;
         const imgMinY = imgBounds.top;
         const imgMaxX = imgBounds.left + imgBounds.width;
         const imgMaxY = imgBounds.top + imgBounds.height;
+        
+        let newLeft = cropLeft;
+        let newTop = cropTop;
+        let newScaleX = cropRect.scaleX;
+        let newScaleY = cropRect.scaleY;
+        
+        // Calculate new dimensions
+        let displayWidth = cropWidth;
+        let displayHeight = cropHeight;
         
         // Constrain left edge
         if (newLeft < imgMinX) {
@@ -1066,58 +1089,37 @@
         }
         
         // Constrain right edge
-        if (newLeft + newWidth > imgMaxX) {
-          newWidth = imgMaxX - newLeft;
+        if (newLeft + displayWidth > imgMaxX) {
+          displayWidth = imgMaxX - newLeft;
+          newScaleX = displayWidth / cropRect.width;
         }
         
         // Constrain bottom edge
-        if (newTop + newHeight > imgMaxY) {
-          newHeight = imgMaxY - newTop;
+        if (newTop + displayHeight > imgMaxY) {
+          displayHeight = imgMaxY - newTop;
+          newScaleY = displayHeight / cropRect.height;
         }
         
         // Ensure minimum size (but don't exceed image bounds)
         const minSize = 20;
-        if (newWidth < minSize) {
-          newWidth = Math.min(minSize, imgMaxX - newLeft);
-          if (newLeft + newWidth > imgMaxX) {
-            newLeft = imgMaxX - newWidth;
-            if (newLeft < imgMinX) {
-              newLeft = imgMinX;
-              newWidth = Math.min(imgBounds.width, minSize);
-            }
-          }
+        if (displayWidth < minSize) {
+          displayWidth = Math.min(minSize, imgMaxX - newLeft);
+          newScaleX = displayWidth / cropRect.width;
         }
-        if (newHeight < minSize) {
-          newHeight = Math.min(minSize, imgMaxY - newTop);
-          if (newTop + newHeight > imgMaxY) {
-            newTop = imgMaxY - newHeight;
-            if (newTop < imgMinY) {
-              newTop = imgMinY;
-              newHeight = Math.min(imgBounds.height, minSize);
-            }
-          }
-        }
-        
-        // Final bounds check
-        if (newLeft < imgMinX) newLeft = imgMinX;
-        if (newTop < imgMinY) newTop = imgMinY;
-        if (newLeft + newWidth > imgMaxX) {
-          newWidth = imgMaxX - newLeft;
-        }
-        if (newTop + newHeight > imgMaxY) {
-          newHeight = imgMaxY - newTop;
+        if (displayHeight < minSize) {
+          displayHeight = Math.min(minSize, imgMaxY - newTop);
+          newScaleY = displayHeight / cropRect.height;
         }
         
         // Apply constraints
         cropRect.set({
           left: newLeft,
           top: newTop,
-          width: newWidth,
-          height: newHeight,
+          scaleX: newScaleX,
+          scaleY: newScaleY,
         });
         
         cropRect.setCoords();
-        canvas.renderAll();
       }
       
       function applyCrop() {
@@ -1187,13 +1189,19 @@
         }
         
         // Store crop image properties before async operation (cropImage might be removed)
-        const currentLeft = cropImage.left;
-        const currentTop = cropImage.top;
         const currentAngle = cropImage.angle || 0;
         const currentOpacity = cropImage.opacity || 1;
         const currentObjectId = cropImage.objectId;
-        const currentOriginX = cropImage.originX || 'left';
-        const currentOriginY = cropImage.originY || 'top';
+        
+        // Store the displayed crop position (where the new image should be placed)
+        const newLeft = rectBounds.left + rectBounds.width / 2;
+        const newTop = rectBounds.top + rectBounds.height / 2;
+        const displayedCropWidth = rectBounds.width;
+        const displayedCropHeight = rectBounds.height;
+        
+        // Store reference to cropImage for removal
+        const imageToRemove = cropImage;
+        const rectToRemove = cropRect;
         
         // Create new image from cropped data
         fabric.Image.fromURL(
@@ -1204,19 +1212,15 @@
               return;
             }
             
-            // Use stored properties (cropImage might be null now)
-            
             // Calculate scale to maintain the displayed crop size
-            const displayedCropWidth = rectBounds.width;
-            const displayedCropHeight = rectBounds.height;
             const scaleX = displayedCropWidth / newImg.width;
             const scaleY = displayedCropHeight / newImg.height;
             
             newImg.set({
-              left: currentLeft,
-              top: currentTop,
-              originX: currentOriginX,
-              originY: currentOriginY,
+              left: newLeft,
+              top: newTop,
+              originX: 'center',
+              originY: 'center',
               scaleX: scaleX,
               scaleY: scaleY,
               angle: currentAngle,
@@ -1235,12 +1239,14 @@
             });
             
             // Remove old image and all crop elements
-            canvas.remove(cropImage);
-            if (cropRect) {
-              cropRect.off('modified');
-              cropRect.off('moving');
-              cropRect.off('scaling');
-              canvas.remove(cropRect);
+            if (imageToRemove) {
+              canvas.remove(imageToRemove);
+            }
+            if (rectToRemove) {
+              rectToRemove.off('modified');
+              rectToRemove.off('moving');
+              rectToRemove.off('scaling');
+              canvas.remove(rectToRemove);
             }
             const overlays = canvas.getObjects().filter(o => o.objectId && (o.objectId.startsWith('crop_overlay_') || o.objectId === 'crop_grid'));
             overlays.forEach(ov => canvas.remove(ov));
