@@ -223,6 +223,12 @@
       let penToolActive = false;
       let penToolMode = 'shape'; // 'shape' or 'path'
 
+      // Crop Tool
+      let cropToolActive = false;
+      let cropRect = null;
+      let cropImage = null;
+      let cropOverlay = null;
+
       function initCanvas() {
         try {
           const container = document.getElementById('canvas-container');
@@ -717,6 +723,415 @@
           },
           { crossOrigin: 'anonymous' }
         );
+      }
+
+      // Crop Tool Functions
+      function activateCropTool() {
+        const obj = canvas.getActiveObject();
+        if (!obj || obj.type !== 'image') {
+          sendToRN({ type: 'CONSOLE_ERROR', payload: { message: 'Please select an image to crop' } });
+          return;
+        }
+        
+        // Cancel any existing crop
+        if (cropToolActive) {
+          cancelCrop();
+        }
+        
+        cropToolActive = true;
+        cropImage = obj;
+        
+        // Disable normal transformation on image
+        obj.set({
+          selectable: false,
+          evented: false,
+          hasControls: false,
+          hasBorders: false,
+        });
+        
+        // Get image bounds (accounting for rotation)
+        const imgBounds = obj.getBoundingRect();
+        const imgLeft = imgBounds.left;
+        const imgTop = imgBounds.top;
+        const imgWidth = imgBounds.width;
+        const imgHeight = imgBounds.height;
+        
+        // Create crop rectangle (initially covers full image)
+        cropRect = new fabric.Rect({
+          left: imgLeft,
+          top: imgTop,
+          width: imgWidth,
+          height: imgHeight,
+          fill: 'transparent',
+          stroke: '#5956E9',
+          strokeWidth: 3,
+          selectable: true,
+          evented: true,
+          hasControls: true,
+          hasBorders: true,
+          cornerColor: '#5956E9',
+          cornerStrokeColor: '#ffffff',
+          borderColor: '#5956E9',
+          cornerSize: 14,
+          cornerStyle: 'circle',
+          transparentCorners: false,
+          objectId: 'crop_rect',
+          lockScalingFlip: false,
+          lockRotation: true,
+        });
+        
+        // Create dark overlay rectangles around the crop area
+        createCropOverlay();
+        
+        // Create grid overlay
+        createCropGrid();
+        
+        canvas.add(cropRect);
+        canvas.setActiveObject(cropRect);
+        canvas.renderAll();
+        
+        // Constrain crop rect to image bounds
+        cropRect.on('modified', () => {
+          constrainCropToImage();
+          updateCropGrid();
+          updateCropOverlay();
+        });
+        
+        cropRect.on('moving', () => {
+          constrainCropToImage();
+          updateCropGrid();
+          updateCropOverlay();
+        });
+        
+        cropRect.on('scaling', () => {
+          constrainCropToImage();
+          updateCropGrid();
+          updateCropOverlay();
+        });
+      }
+      
+      function createCropOverlay() {
+        // Remove existing overlay
+        const existingOverlays = canvas.getObjects().filter(o => o.objectId && o.objectId.startsWith('crop_overlay_'));
+        existingOverlays.forEach(ov => canvas.remove(ov));
+        
+        if (!cropRect) return;
+        
+        const rectBounds = cropRect.getBoundingRect();
+        const overlays = [];
+        
+        // Top overlay
+        if (rectBounds.top > 0) {
+          overlays.push(new fabric.Rect({
+            left: 0,
+            top: 0,
+            width: canvasWidth,
+            height: rectBounds.top,
+            fill: 'rgba(0, 0, 0, 0.6)',
+            selectable: false,
+            evented: false,
+            objectId: 'crop_overlay_top',
+          }));
+        }
+        
+        // Bottom overlay
+        if (rectBounds.top + rectBounds.height < canvasHeight) {
+          overlays.push(new fabric.Rect({
+            left: 0,
+            top: rectBounds.top + rectBounds.height,
+            width: canvasWidth,
+            height: canvasHeight - (rectBounds.top + rectBounds.height),
+            fill: 'rgba(0, 0, 0, 0.6)',
+            selectable: false,
+            evented: false,
+            objectId: 'crop_overlay_bottom',
+          }));
+        }
+        
+        // Left overlay
+        if (rectBounds.left > 0) {
+          overlays.push(new fabric.Rect({
+            left: 0,
+            top: rectBounds.top,
+            width: rectBounds.left,
+            height: rectBounds.height,
+            fill: 'rgba(0, 0, 0, 0.6)',
+            selectable: false,
+            evented: false,
+            objectId: 'crop_overlay_left',
+          }));
+        }
+        
+        // Right overlay
+        if (rectBounds.left + rectBounds.width < canvasWidth) {
+          overlays.push(new fabric.Rect({
+            left: rectBounds.left + rectBounds.width,
+            top: rectBounds.top,
+            width: canvasWidth - (rectBounds.left + rectBounds.width),
+            height: rectBounds.height,
+            fill: 'rgba(0, 0, 0, 0.6)',
+            selectable: false,
+            evented: false,
+            objectId: 'crop_overlay_right',
+          }));
+        }
+        
+        overlays.forEach(ov => {
+          canvas.add(ov);
+          canvas.sendToBack(ov);
+        });
+        
+        canvas.renderAll();
+      }
+      
+      function updateCropOverlay() {
+        createCropOverlay();
+      }
+      
+      function createCropGrid() {
+        // Remove existing grid if any
+        const existingGrid = canvas.getObjects().find(o => o.objectId === 'crop_grid');
+        if (existingGrid) {
+          canvas.remove(existingGrid);
+        }
+        
+        if (!cropRect) return;
+        
+        const rectBounds = cropRect.getBoundingRect();
+        const lines = [];
+        
+        // Create rule of thirds grid (3x3) - 2 vertical and 2 horizontal lines
+        for (let i = 1; i < 3; i++) {
+          // Vertical lines
+          const vx = rectBounds.left + (rectBounds.width * i / 3);
+          lines.push(new fabric.Line([
+            vx, rectBounds.top,
+            vx, rectBounds.top + rectBounds.height
+          ], {
+            stroke: 'rgba(255, 255, 255, 0.6)',
+            strokeWidth: 1,
+            selectable: false,
+            evented: false,
+            objectId: 'crop_grid_v_' + i,
+          }));
+          
+          // Horizontal lines
+          const vy = rectBounds.top + (rectBounds.height * i / 3);
+          lines.push(new fabric.Line([
+            rectBounds.left, vy,
+            rectBounds.left + rectBounds.width, vy
+          ], {
+            stroke: 'rgba(255, 255, 255, 0.6)',
+            strokeWidth: 1,
+            selectable: false,
+            evented: false,
+            objectId: 'crop_grid_h_' + i,
+          }));
+        }
+        
+        if (lines.length > 0) {
+          cropOverlay = new fabric.Group(lines, {
+            selectable: false,
+            evented: false,
+            objectId: 'crop_grid',
+          });
+          
+          canvas.add(cropOverlay);
+          canvas.renderAll();
+        }
+      }
+      
+      function updateCropGrid() {
+        if (!cropRect) return;
+        
+        // Recreate grid with new crop rect bounds
+        const existingGrid = canvas.getObjects().find(o => o.objectId === 'crop_grid');
+        if (existingGrid) {
+          canvas.remove(existingGrid);
+        }
+        
+        createCropGrid();
+      }
+      
+      function constrainCropToImage() {
+        if (!cropRect || !cropImage) return;
+        
+        const imgBounds = cropImage.getBoundingRect();
+        const rectBounds = cropRect.getBoundingRect();
+        
+        let newLeft = rectBounds.left;
+        let newTop = rectBounds.top;
+        let newWidth = rectBounds.width;
+        let newHeight = rectBounds.height;
+        
+        // Constrain to image bounds
+        if (newLeft < imgBounds.left) {
+          newLeft = imgBounds.left;
+        }
+        if (newTop < imgBounds.top) {
+          newTop = imgBounds.top;
+        }
+        if (newLeft + newWidth > imgBounds.left + imgBounds.width) {
+          newWidth = (imgBounds.left + imgBounds.width) - newLeft;
+        }
+        if (newTop + newHeight > imgBounds.top + imgBounds.height) {
+          newHeight = (imgBounds.top + imgBounds.height) - newTop;
+        }
+        
+        // Ensure minimum size
+        if (newWidth < 20) newWidth = 20;
+        if (newHeight < 20) newHeight = 20;
+        
+        cropRect.set({
+          left: newLeft,
+          top: newTop,
+          width: newWidth,
+          height: newHeight,
+        });
+        
+        cropRect.setCoords();
+      }
+      
+      function applyCrop() {
+        if (!cropToolActive || !cropRect || !cropImage) return;
+        
+        const rectBounds = cropRect.getBoundingRect();
+        const imgBounds = cropImage.getBoundingRect();
+        
+        // Calculate crop area relative to image
+        const cropLeft = (rectBounds.left - imgBounds.left) / imgBounds.width;
+        const cropTop = (rectBounds.top - imgBounds.top) / imgBounds.height;
+        const cropWidth = rectBounds.width / imgBounds.width;
+        const cropHeight = rectBounds.height / imgBounds.height;
+        
+        // Get image element
+        const imgElement = cropImage.getElement();
+        if (!imgElement) return;
+        
+        // Create temporary canvas for cropping
+        const tempCanvas = document.createElement('canvas');
+        const tempCtx = tempCanvas.getContext('2d');
+        const imgWidth = imgElement.width || cropImage.width;
+        const imgHeight = imgElement.height || cropImage.height;
+        
+        tempCanvas.width = rectBounds.width;
+        tempCanvas.height = rectBounds.height;
+        
+        // Draw cropped portion
+        tempCtx.drawImage(
+          imgElement,
+          cropLeft * imgWidth,
+          cropTop * imgHeight,
+          cropWidth * imgWidth,
+          cropHeight * imgHeight,
+          0,
+          0,
+          rectBounds.width,
+          rectBounds.height
+        );
+        
+        // Convert to data URL
+        const croppedDataUrl = tempCanvas.toDataURL('image/png');
+        
+        // Create new image from cropped data
+        fabric.Image.fromURL(
+          croppedDataUrl,
+          (newImg) => {
+            if (!newImg) return;
+            
+            // Preserve position and other properties
+            const currentLeft = cropImage.left;
+            const currentTop = cropImage.top;
+            const currentAngle = cropImage.angle || 0;
+            const currentOpacity = cropImage.opacity || 1;
+            const currentObjectId = cropImage.objectId;
+            
+            // Calculate scale to fit the cropped size
+            const scaleX = rectBounds.width / newImg.width;
+            const scaleY = rectBounds.height / newImg.height;
+            
+            newImg.set({
+              left: currentLeft,
+              top: currentTop,
+              originX: cropImage.originX,
+              originY: cropImage.originY,
+              scaleX: scaleX,
+              scaleY: scaleY,
+              angle: currentAngle,
+              opacity: currentOpacity,
+              objectId: currentObjectId,
+              cornerColor: '#5956E9',
+              cornerStrokeColor: '#5956E9',
+              borderColor: '#5956E9',
+              cornerSize: 10,
+              cornerStyle: 'circle',
+              transparentCorners: false,
+              selectable: true,
+              evented: true,
+              hasControls: true,
+              hasBorders: true,
+            });
+            
+            // Remove old image and crop elements
+            canvas.remove(cropImage);
+            canvas.remove(cropRect);
+            const overlays = canvas.getObjects().filter(o => o.objectId && o.objectId.startsWith('crop_overlay_'));
+            overlays.forEach(ov => canvas.remove(ov));
+            if (cropOverlay) canvas.remove(cropOverlay);
+            
+            // Add new cropped image
+            canvas.add(newImg);
+            canvas.setActiveObject(newImg);
+            canvas.renderAll();
+            saveHistory();
+            sendSelectionUpdate();
+            
+            // Cleanup
+            deactivateCropTool();
+          },
+          { crossOrigin: 'anonymous' }
+        );
+      }
+      
+      function cancelCrop() {
+        if (!cropToolActive) return;
+        
+        // Restore image
+        if (cropImage) {
+          cropImage.set({
+            selectable: true,
+            evented: true,
+            hasControls: true,
+            hasBorders: true,
+          });
+        }
+        
+        // Remove crop elements
+        if (cropRect) {
+          canvas.remove(cropRect);
+          cropRect = null;
+        }
+        const overlays = canvas.getObjects().filter(o => o.objectId && o.objectId.startsWith('crop_overlay_'));
+        overlays.forEach(ov => canvas.remove(ov));
+        if (cropOverlay) {
+          canvas.remove(cropOverlay);
+          cropOverlay = null;
+        }
+        
+        // Restore selection
+        if (cropImage) {
+          canvas.setActiveObject(cropImage);
+        }
+        
+        canvas.renderAll();
+        deactivateCropTool();
+      }
+      
+      function deactivateCropTool() {
+        cropToolActive = false;
+        cropImage = null;
+        cropRect = null;
+        cropOverlay = null;
       }
 
       function updateSelectedObject(prop, val) {
@@ -1668,6 +2083,9 @@
               break;
             case 'UPDATE_OBJECT': updateSelectedObject(payload.property, payload.value); break;
             case 'REPLACE_IMAGE': replaceImage(payload.dataUrl); break;
+            case 'CROP_TOOL_ACTIVATE': activateCropTool(); break;
+            case 'CROP_TOOL_APPLY': applyCrop(); break;
+            case 'CROP_TOOL_CANCEL': cancelCrop(); break;
             case 'NUDGE_POSITION': nudgePosition(payload.deltaX || 0, payload.deltaY || 0); break;
             case 'SET_SCALE': setScale(payload.scaleX || 1, payload.scaleY); break;
             case 'ROTATE_OBJECT': rotateObject(payload.angleDelta || 0); break;
