@@ -38,18 +38,24 @@
       width: 100%;
       height: 100%;
       display: flex;
-      align-items: center;
-      justify-content: center;
+      align-items: stretch;
+      justify-content: stretch;
       overflow: hidden;
       touch-action: none;
+      margin: 0;
+      padding: 0;
     }
 
     #canvas-wrapper {
       position: relative;
       background: #ffffff;
-      border-radius: 16px;
-      box-shadow: 0 8px 32px rgba(0,0,0,0.12);
+      width: 100%;
+      height: 100%;
+      border-radius: 0;
+      box-shadow: none;
       overflow: hidden;
+      margin: 0;
+      padding: 0;
     }
 
     #canvas-wrapper.transparent-bg {
@@ -235,13 +241,12 @@
           const container = document.getElementById('canvas-container');
           const wrapper = document.getElementById('canvas-wrapper');
           
-          const maxWidth = container.clientWidth - 40;
-          const maxHeight = container.clientHeight - 40;
-          canvasWidth = Math.min(280, maxWidth);
-          canvasHeight = Math.min(280, maxHeight);
+          // Use full container dimensions for edge-to-edge canvas
+          canvasWidth = container.clientWidth;
+          canvasHeight = container.clientHeight;
 
-          wrapper.style.width = canvasWidth + 'px';
-          wrapper.style.height = canvasHeight + 'px';
+          wrapper.style.width = '100%';
+          wrapper.style.height = '100%';
 
           canvas = new fabric.Canvas('logo-canvas', {
             width: canvasWidth,
@@ -1326,7 +1331,7 @@
         if ((prop === 'fill' || prop === 'stroke') && obj.type === 'group' && obj._objects) {
           updateSVGGroupColor(obj, val, prop);
         } else {
-          obj.set(prop, val);
+        obj.set(prop, val);
         }
         
         canvas.renderAll();
@@ -1923,7 +1928,7 @@
 
       // --- Snapping guides ---
 
-      function clearGuides() {  
+      function clearGuides() {
         if (!canvas) return;
         const toRemove = canvas.getObjects().filter(o => o.isGuideLine);
         toRemove.forEach(o => canvas.remove(o));
@@ -2290,7 +2295,7 @@
           case 'SET_BACKGROUND': createBackground(payload.color); saveHistory(); break;
           case 'UNDO': undo(); break;
           case 'REDO': redo(); break;
-            case 'EXPORT': exportCanvas(payload.format, payload.quality, payload.multiplier); break;
+          case 'EXPORT': exportCanvas(payload.format, payload.quality, payload.multiplier); break;
             case 'CLEAR_CANVAS': clearCanvas(); break;
           case 'GET_LAYERS': getLayers(); break;
           case 'SET_LAYER_VISIBILITY': setLayerVisibility(payload.objectId, payload.visible); break;
@@ -2316,7 +2321,7 @@
       } else {
         preloadFonts().then(() => {
           updateStatus('Fonts loaded, initializing canvas...');
-          initCanvas();
+        initCanvas();
         });
       }
     })();
