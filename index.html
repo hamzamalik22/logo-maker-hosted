@@ -659,6 +659,66 @@
         }
       }
 
+      function replaceImage(dataUrl) {
+        const obj = canvas.getActiveObject();
+        if (!obj || obj.type !== 'image') {
+          sendToRN({ type: 'CONSOLE_ERROR', payload: { message: 'No image selected' } });
+          return;
+        }
+        
+        fabric.Image.fromURL(
+          dataUrl,
+          (newImg) => {
+            if (!newImg) return;
+            
+            // Preserve current position, scale, and rotation
+            const currentLeft = obj.left;
+            const currentTop = obj.top;
+            const currentScaleX = obj.scaleX;
+            const currentScaleY = obj.scaleY;
+            const currentAngle = obj.angle;
+            const currentOpacity = obj.opacity;
+            const currentObjectId = obj.objectId;
+            
+            // Calculate new scale to maintain similar size
+            const oldWidth = (obj.width || 1) * currentScaleX;
+            const oldHeight = (obj.height || 1) * currentScaleY;
+            const newWidth = newImg.width || 1;
+            const newHeight = newImg.height || 1;
+            
+            const scaleX = oldWidth / newWidth;
+            const scaleY = oldHeight / newHeight;
+            
+            newImg.set({
+              left: currentLeft,
+              top: currentTop,
+              originX: obj.originX,
+              originY: obj.originY,
+              scaleX: scaleX,
+              scaleY: scaleY,
+              angle: currentAngle,
+              opacity: currentOpacity,
+              objectId: currentObjectId,
+              cornerColor: '#5956E9',
+              cornerStrokeColor: '#5956E9',
+              borderColor: '#5956E9',
+              cornerSize: 10,
+              cornerStyle: 'circle',
+              transparentCorners: false,
+            });
+            
+            // Remove old image and add new one
+            canvas.remove(obj);
+            canvas.add(newImg);
+            canvas.setActiveObject(newImg);
+            canvas.renderAll();
+            saveHistory();
+            sendSelectionUpdate();
+          },
+          { crossOrigin: 'anonymous' }
+        );
+      }
+
       function updateSelectedObject(prop, val) {
         const obj = canvas.getActiveObject();
         if (!obj) return;
@@ -1607,6 +1667,7 @@
               setDrawToolWidth(payload?.width || 5); 
               break;
             case 'UPDATE_OBJECT': updateSelectedObject(payload.property, payload.value); break;
+            case 'REPLACE_IMAGE': replaceImage(payload.dataUrl); break;
             case 'NUDGE_POSITION': nudgePosition(payload.deltaX || 0, payload.deltaY || 0); break;
             case 'SET_SCALE': setScale(payload.scaleX || 1, payload.scaleY); break;
             case 'ROTATE_OBJECT': rotateObject(payload.angleDelta || 0); break;
