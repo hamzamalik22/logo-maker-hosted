@@ -728,7 +728,27 @@
 
       // Crop Tool Functions
       function activateCropTool() {
-        const obj = canvas.getActiveObject();
+        if (!canvas) {
+          sendToRN({ type: 'CONSOLE_ERROR', payload: { message: 'Canvas not initialized' } });
+          return;
+        }
+        
+        // Try to get active object, or find any image in canvas
+        let obj = canvas.getActiveObject();
+        
+        // If no active object, try to find an image in the canvas
+        if (!obj || obj.type !== 'image') {
+          const images = canvas.getObjects().filter(o => o.type === 'image' && o.objectId !== 'background_layer');
+          if (images.length > 0) {
+            obj = images[images.length - 1]; // Get the last added image
+            canvas.setActiveObject(obj);
+            canvas.renderAll();
+          } else {
+            sendToRN({ type: 'CONSOLE_ERROR', payload: { message: 'Please select an image to crop' } });
+            return;
+          }
+        }
+        
         if (!obj || obj.type !== 'image') {
           sendToRN({ type: 'CONSOLE_ERROR', payload: { message: 'Please select an image to crop' } });
           return;
@@ -739,73 +759,84 @@
           cancelCrop();
         }
         
-        cropToolActive = true;
-        cropImage = obj;
-        
-        // Disable normal transformation on image
-        obj.set({
-          selectable: false,
-          evented: false,
-          hasControls: false,
-          hasBorders: false,
-        });
-        
-        // Get image bounds (accounting for rotation)
-        const imgBounds = obj.getBoundingRect();
-        const imgLeft = imgBounds.left;
-        const imgTop = imgBounds.top;
-        const imgWidth = imgBounds.width;
-        const imgHeight = imgBounds.height;
-        
-        // Create crop rectangle (initially covers full image)
-        cropRect = new fabric.Rect({
-          left: imgLeft,
-          top: imgTop,
-          width: imgWidth,
-          height: imgHeight,
-          fill: 'transparent',
-          stroke: '#5956E9',
-          strokeWidth: 3,
-          selectable: true,
-          evented: true,
-          hasControls: true,
-          hasBorders: true,
-          cornerColor: '#5956E9',
-          cornerStrokeColor: '#ffffff',
-          borderColor: '#5956E9',
-          cornerSize: 14,
-          cornerStyle: 'circle',
-          transparentCorners: false,
-          objectId: 'crop_rect',
-          lockScalingFlip: false,
-          lockRotation: true,
-        });
-        
-        // Create dark overlay rectangles around the crop area
-        createCropOverlay();
-        
-        // Create grid overlay
-        createCropGrid();
-        
-        canvas.add(cropRect);
-        canvas.setActiveObject(cropRect);
-        canvas.renderAll();
-        
-        // Constrain crop rect to image bounds with debounced updates
-        cropRect.on('modified', () => {
-          constrainCropToImage();
-          debouncedCropUpdate();
-        });
-        
-        cropRect.on('moving', () => {
-          constrainCropToImage();
-          debouncedCropUpdate();
-        });
-        
-        cropRect.on('scaling', () => {
-          constrainCropToImage();
-          debouncedCropUpdate();
-        });
+        try {
+          cropToolActive = true;
+          cropImage = obj;
+          
+          // Disable normal transformation on image
+          obj.set({
+            selectable: false,
+            evented: false,
+            hasControls: false,
+            hasBorders: false,
+          });
+          
+          // Get image bounds (accounting for rotation)
+          const imgBounds = obj.getBoundingRect();
+          const imgLeft = imgBounds.left;
+          const imgTop = imgBounds.top;
+          const imgWidth = imgBounds.width;
+          const imgHeight = imgBounds.height;
+          
+          // Ensure valid dimensions
+          if (imgWidth <= 0 || imgHeight <= 0) {
+            sendToRN({ type: 'CONSOLE_ERROR', payload: { message: 'Invalid image dimensions' } });
+            return;
+          }
+          
+          // Create crop rectangle (initially covers full image)
+          cropRect = new fabric.Rect({
+            left: imgLeft,
+            top: imgTop,
+            width: imgWidth,
+            height: imgHeight,
+            fill: 'transparent',
+            stroke: '#5956E9',
+            strokeWidth: 3,
+            selectable: true,
+            evented: true,
+            hasControls: true,
+            hasBorders: true,
+            cornerColor: '#5956E9',
+            cornerStrokeColor: '#ffffff',
+            borderColor: '#5956E9',
+            cornerSize: 14,
+            cornerStyle: 'circle',
+            transparentCorners: false,
+            objectId: 'crop_rect',
+            lockScalingFlip: false,
+            lockRotation: true,
+          });
+          
+          // Create dark overlay rectangles around the crop area
+          createCropOverlay();
+          
+          // Create grid overlay
+          createCropGrid();
+          
+          canvas.add(cropRect);
+          canvas.setActiveObject(cropRect);
+          canvas.renderAll();
+          
+          // Constrain crop rect to image bounds with debounced updates
+          cropRect.on('modified', () => {
+            constrainCropToImage();
+            debouncedCropUpdate();
+          });
+          
+          cropRect.on('moving', () => {
+            constrainCropToImage();
+            debouncedCropUpdate();
+          });
+          
+          cropRect.on('scaling', () => {
+            constrainCropToImage();
+            debouncedCropUpdate();
+          });
+        } catch (e) {
+          sendToRN({ type: 'CONSOLE_ERROR', payload: { message: 'Error activating crop: ' + (e?.message || String(e)) } });
+          deactivateCropTool();
+        }
       }
       
       function createCropOverlay() {
@@ -972,24 +1003,65 @@
         let newWidth = rectBounds.width;
         let newHeight = rectBounds.height;
         
-        // Constrain to image bounds
-        if (newLeft < imgBounds.left) {
-          newLeft = imgBounds.left;
-        }
-        if (newTop < imgBounds.top) {
-          newTop = imgBounds.top;
-        }
-        if (newLeft + newWidth > imgBounds.left + imgBounds.width) {
-          newWidth = (imgBounds.left + imgBounds.width) - newLeft;
-        }
-        if (newTop + newHeight > imgBounds.top + imgBounds.height) {
-          newHeight = (imgBounds.top + imgBounds.height) - newTop;
+        const imgMinX = imgBounds.left;
+        const imgMinY = imgBounds.top;
+        const imgMaxX = imgBounds.left + imgBounds.width;
+        const imgMaxY = imgBounds.top + imgBounds.height;
+        
+        // Constrain left edge
+        if (newLeft < imgMinX) {
+          newLeft = imgMinX;
         }
         
-        // Ensure minimum size
-        if (newWidth < 20) newWidth = 20;
-        if (newHeight < 20) newHeight = 20;
+        // Constrain top edge
+        if (newTop < imgMinY) {
+          newTop = imgMinY;
+        }
         
+        // Constrain right edge
+        if (newLeft + newWidth > imgMaxX) {
+          newWidth = imgMaxX - newLeft;
+        }
+        
+        // Constrain bottom edge
+        if (newTop + newHeight > imgMaxY) {
+          newHeight = imgMaxY - newTop;
+        }
+        
+        // Ensure minimum size (but don't exceed image bounds)
+        const minSize = 20;
+        if (newWidth < minSize) {
+          newWidth = Math.min(minSize, imgMaxX - newLeft);
+          if (newLeft + newWidth > imgMaxX) {
+            newLeft = imgMaxX - newWidth;
+            if (newLeft < imgMinX) {
+              newLeft = imgMinX;
+              newWidth = Math.min(imgBounds.width, minSize);
+            }
+          }
+        }
+        if (newHeight < minSize) {
+          newHeight = Math.min(minSize, imgMaxY - newTop);
+          if (newTop + newHeight > imgMaxY) {
+            newTop = imgMaxY - newHeight;
+            if (newTop < imgMinY) {
+              newTop = imgMinY;
+              newHeight = Math.min(imgBounds.height, minSize);
+            }
+          }
+        }
+        
+        // Final bounds check
+        if (newLeft < imgMinX) newLeft = imgMinX;
+        if (newTop < imgMinY) newTop = imgMinY;
+        if (newLeft + newWidth > imgMaxX) {
+          newWidth = imgMaxX - newLeft;
+        }
+        if (newTop + newHeight > imgMaxY) {
+          newHeight = imgMaxY - newTop;
+        }
+        
+        // Apply constraints
         cropRect.set({
           left: newLeft,
           top: newTop,
@@ -998,6 +1070,7 @@
         });
         
         cropRect.setCoords();
+        canvas.renderAll();
       }
       
       function applyCrop() {
