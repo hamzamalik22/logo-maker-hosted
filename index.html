@@ -43,7 +43,9 @@
       overflow: hidden;
       touch-action: none;
       margin: 0;
-      padding: 0;
+      padding: 0 0;
+      padding-left: 0;
+      padding-right: 0;
     }
 
     #canvas-wrapper {
@@ -240,10 +242,19 @@
           const container = document.getElementById('canvas-container');
           const wrapper = document.getElementById('canvas-wrapper');
           
-          // Use full width but maintain aspect ratio for height
-          canvasWidth = container.clientWidth;
-          // Maintain square aspect ratio (or adjust as needed)
-          canvasHeight = canvasWidth; // Square canvas, or use canvasWidth * 0.75 for 4:3, etc.
+          // Use full width (touches horizontal edges) but add vertical padding
+          const maxWidth = container.clientWidth;
+          const maxHeight = container.clientHeight - 40; // 40px total vertical padding (20px top + 20px bottom)
+          
+          // Maintain square aspect ratio
+          canvasWidth = maxWidth;
+          canvasHeight = Math.min(canvasWidth, maxHeight);
+          
+          // If height would be too large, scale down proportionally
+          if (canvasHeight > maxHeight) {
+            canvasHeight = maxHeight;
+            canvasWidth = canvasHeight; // Keep square
+          }
 
           wrapper.style.width = '100%';
           wrapper.style.height = canvasHeight + 'px';
