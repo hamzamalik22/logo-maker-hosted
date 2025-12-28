@@ -727,30 +727,70 @@
       }
 
       // Crop Tool Functions
-      function activateCropTool() {
+      function activateCropTool(payload) {
         if (!canvas) {
           sendToRN({ type: 'CONSOLE_ERROR', payload: { message: 'Canvas not initialized' } });
           return;
         }
         
-        // Try to get active object, or find any image in canvas
-        let obj = canvas.getActiveObject();
+        let obj = null;
+        const objectId = payload?.objectId;
         
-        // If no active object, try to find an image in the canvas
-        if (!obj || obj.type !== 'image') {
-          const images = canvas.getObjects().filter(o => o.type === 'image' && o.objectId !== 'background_layer');
-          if (images.length > 0) {
-            obj = images[images.length - 1]; // Get the last added image
+        // If objectId is provided, find object by ID
+        if (objectId) {
+          obj = canvas.getObjects().find(o => o.objectId === objectId);
+          if (obj && obj.type === 'image') {
             canvas.setActiveObject(obj);
             canvas.renderAll();
-          } else {
-            sendToRN({ type: 'CONSOLE_ERROR', payload: { message: 'Please select an image to crop' } });
+            proceedWithCrop(obj);
             return;
           }
         }
         
+        // Try to get active object first
+        obj = canvas.getActiveObject();
+        
+        // If no active object or not an image, try to find images in canvas
         if (!obj || obj.type !== 'image') {
+          const allObjects = canvas.getObjects();
+          const images = allObjects.filter(o => 
+            o.type === 'image' && 
+            o.objectId && 
+            o.objectId !== 'background_layer' &&
+            o.visible !== false
+          );
+          
+          if (images.length > 0) {
+            // Try to find the most recently selected one, or use the last one
+            obj = images[images.length - 1];
+            // Make sure it's selected
+            canvas.setActiveObject(obj);
+            canvas.renderAll();
+            // Give it a moment to update
+            setTimeout(() => {
+              const activeObj = canvas.getActiveObject();
+              if (activeObj === obj && obj.type === 'image') {
+                proceedWithCrop(obj);
+              }
+            }, 50);
+            return;
+          } else {
+            sendToRN({ type: 'CONSOLE_ERROR', payload: { message: 'No image found. Please add an image first.' } });
+            return;
+          }
+        }
+        
+        if (obj.type !== 'image') {
           sendToRN({ type: 'CONSOLE_ERROR', payload: { message: 'Please select an image to crop' } });
+          return;
+        }
+        
+        proceedWithCrop(obj);
+      }
+      
+      function proceedWithCrop(obj) {
+        if (!obj || obj.type !== 'image') {
+          sendToRN({ type: 'CONSOLE_ERROR', payload: { message: 'Invalid image object' } });
           return;
         }
         
@@ -762,6 +802,13 @@
         try {
           cropToolActive = true;
           cropImage = obj;
+          
+          // Ensure object is still valid
+          if (!canvas.getObjects().includes(obj)) {
+            sendToRN({ type: 'CONSOLE_ERROR', payload: { message: 'Image object no longer exists' } });
+            deactivateCropTool();
+            return;
+          }
           
           // Disable normal transformation on image
           obj.set({
@@ -1139,6 +1186,15 @@
           return;
         }
         
+        // Store crop image properties before async operation (cropImage might be removed)
+        const currentLeft = cropImage.left;
+        const currentTop = cropImage.top;
+        const currentAngle = cropImage.angle || 0;
+        const currentOpacity = cropImage.opacity || 1;
+        const currentObjectId = cropImage.objectId;
+        const currentOriginX = cropImage.originX || 'left';
+        const currentOriginY = cropImage.originY || 'top';
+        
         // Create new image from cropped data
         fabric.Image.fromURL(
           croppedDataUrl,
@@ -1148,14 +1204,7 @@
               return;
             }
             
-            // Preserve position and other properties
-            const currentLeft = cropImage.left;
-            const currentTop = cropImage.top;
-            const currentAngle = cropImage.angle || 0;
-            const currentOpacity = cropImage.opacity || 1;
-            const currentObjectId = cropImage.objectId;
-            const currentOriginX = cropImage.originX || 'left';
-            const currentOriginY = cropImage.originY || 'top';
+            // Use stored properties (cropImage might be null now)
             
             // Calculate scale to maintain the displayed crop size
             const displayedCropWidth = rectBounds.width;
@@ -2209,7 +2258,7 @@
               break;
             case 'UPDATE_OBJECT': updateSelectedObject(payload.property, payload.value); break;
             case 'REPLACE_IMAGE': replaceImage(payload.dataUrl); break;
-            case 'CROP_TOOL_ACTIVATE': activateCropTool(); break;
+            case 'CROP_TOOL_ACTIVATE': activateCropTool(payload); break;
             case 'CROP_TOOL_APPLY': applyCrop(); break;
             case 'CROP_TOOL_CANCEL': cancelCrop(); break;
             case 'NUDGE_POSITION': nudgePosition(payload.deltaX || 0, payload.deltaY || 0); break;
